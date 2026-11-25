@@ -34,8 +34,7 @@ export function ForgotPassword() {
         Recuperar contraseña
       </h1>
       <p className="field-hint" style={{ marginBottom: 'var(--space-5)' }}>
-        Te enviaremos un enlace de un solo uso válido durante 15 minutos. En desarrollo local, el correo se
-        guarda en el directorio configurado en <code>DEV_MAIL_DIR</code>.
+        A veces hace falta un nuevo comienzo. Ingresa tu correo y, si tienes una cuenta, te enviaremos un enlace válido durante 15 minutos.
       </p>
 
       {status && <StatusBanner variant="success">{status}</StatusBanner>}

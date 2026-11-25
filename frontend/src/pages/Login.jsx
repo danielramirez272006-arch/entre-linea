@@ -38,7 +38,7 @@ export function Login() {
         Iniciar sesión
       </h1>
       <p className="field-hint" style={{ marginBottom: 'var(--space-5)' }}>
-        Accede a tu libreta privada. Puedes pegar contraseñas o usar tu gestor habitual.
+        Qué bueno tenerte de vuelta. Tu historia te está esperando.
       </p>
 
       {error && <StatusBanner variant="error">{error}</StatusBanner>}

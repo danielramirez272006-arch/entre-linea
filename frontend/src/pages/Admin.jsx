@@ -9,6 +9,7 @@ import { StatusBanner } from '../components/ui/StatusBanner.jsx';
 export function Admin() {
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [severityFilter, setSeverityFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -86,6 +87,10 @@ export function Admin() {
     return 'badge badge-sage';
   }
 
+  const filteredLogs = severityFilter
+    ? logs.filter((log) => log.severity === severityFilter)
+    : logs;
+
   return (
     <div className="stack-md anim-view">
       <div className="diary-topbar" style={{ marginBottom: 0 }}>
@@ -158,9 +163,30 @@ export function Admin() {
           </section>
 
           <section aria-labelledby="bitacora-heading">
-            <h2 id="bitacora-heading" style={{ fontSize: 'var(--text-xl)' }}>
-              Bitácora de seguridad y alertas ({logs.length})
-            </h2>
+            <div className="row-wrap" style={{ justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+              <h2 id="bitacora-heading" style={{ fontSize: 'var(--text-xl)', margin: 0 }}>
+                Bitácora de seguridad y alertas ({filteredLogs.length}
+                {severityFilter ? ` de ${logs.length}` : ''})
+              </h2>
+              <div className="row-wrap" role="group" aria-label="Filtrar bitácora por severidad">
+                {[
+                  { value: '', label: 'Todas' },
+                  { value: 'alert', label: 'Alertas' },
+                  { value: 'warn', label: 'Advertencias' },
+                  { value: 'info', label: 'Info' },
+                ].map((opt) => (
+                  <Button
+                    key={opt.value || 'all'}
+                    variant={severityFilter === opt.value ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setSeverityFilter(opt.value)}
+                    aria-pressed={severityFilter === opt.value}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -174,12 +200,16 @@ export function Admin() {
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.length === 0 ? (
+                  {filteredLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>Aún no hay eventos registrados.</td>
+                      <td colSpan={6}>
+                        {severityFilter
+                          ? 'No hay eventos registrados con esa severidad.'
+                          : 'Aún no hay eventos registrados.'}
+                      </td>
                     </tr>
                   ) : (
-                    logs.map((log) => (
+                    filteredLogs.map((log) => (
                       <tr key={log.id}>
                         <td>{formatDateTime(log.createdAt)}</td>
                         <td>

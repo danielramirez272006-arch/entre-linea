@@ -53,7 +53,7 @@ export function Diary() {
     } else {
       const data = await api.diary.create(payload);
       saved = data.entry;
-      setNotice('Entrada creada, cifrada y guardada en PostgreSQL.');
+      setNotice('Una nueva página de tu historia, guardada.');
     }
 
     await loadEntries(filters);
@@ -132,6 +132,12 @@ export function Diary() {
         onClear={() => setFilters({ search: '', category: '', mood: '' })}
       />
 
+      {!loading && hasFilters && entries.length > 0 && (
+        <p className="field-hint" role="status" aria-live="polite" style={{ marginBottom: 'var(--space-3)' }}>
+          Mostrando {entries.length} de {totalCount} entradas.
+        </p>
+      )}
+
       {loading ? (
         <div className="diary-grid" role="status" aria-live="polite" aria-label="Cargando entradas">
           <div className="skeleton-card anim-skeleton" />
@@ -143,7 +149,7 @@ export function Diary() {
           <p className="field-hint" style={{ maxWidth: '48ch', margin: '0 auto var(--space-5)' }}>
             {hasFilters
               ? 'Prueba limpiando los filtros o usando otra palabra clave.'
-              : 'Escribe tu primera entrada. Cada título y texto se cifra en el servidor con AES-256-GCM antes de guardarse.'}
+              : 'No hace falta un día extraordinario. Empieza por algo pequeño que quieras recordar.'}
           </p>
           {hasFilters ? (
             <Button variant="secondary" onClick={() => setFilters({ search: '', category: '', mood: '' })}>

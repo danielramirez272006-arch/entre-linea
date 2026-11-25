@@ -3,7 +3,7 @@ import { Button } from '../ui/Button.jsx';
 
 export function DiaryCard({ entry, onOpen }) {
   return (
-    <article className="notebook-sheet anim-card">
+    <article className={`notebook-sheet category-${entry.category} anim-card`}>
       <div className="diary-card-meta">
         <time dateTime={entry.entryDate}>{formatEntryDate(entry.entryDate)}</time>
         <span className="badge badge-sage">{getCategoryLabel(entry.category)}</span>
@@ -14,7 +14,7 @@ export function DiaryCard({ entry, onOpen }) {
       <p className="diary-card-excerpt">{entry.content}</p>
 
       <div className="diary-card-footer">
-        <span className="field-hint">Versión {entry.version}</span>
+        <span className="field-hint">Una página de tu historia</span>
         <Button variant="secondary" size="sm" onClick={() => onOpen(entry)}>
           Abrir entrada
         </Button>

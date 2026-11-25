@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { Icon } from '../ui/Icon.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useUnsavedChangesContext } from '../../context/UnsavedChangesContext.jsx';
 import { Button } from '../ui/Button.jsx';
@@ -11,6 +12,8 @@ export function AppShell({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isAuthPage = ['/iniciar-sesion', '/registro', '/recuperar', '/restablecer'].includes(pathname);
 
   async function executeLogout() {
     if (loggingOut) return;
@@ -67,7 +70,7 @@ export function AppShell({ children }) {
   );
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${user ? 'is-member' : 'is-guest'} ${isAuthPage ? 'is-auth-page' : ''}`}>
       <a href="#contenido-principal" className="skip-link">
         Saltar al contenido principal
       </a>
@@ -76,11 +79,11 @@ export function AppShell({ children }) {
         <div className="app-header-inner">
           <Link to={user ? '/diario' : '/'} className="brand-link" onClick={() => setMenuOpen(false)}>
             <span className="brand-mark" aria-hidden="true">
-              EL
+              <Icon name="book" size={25}/>
             </span>
             <span>
               <span className="brand-title">Entre Líneas</span>
-              <span className="brand-subtitle">Diario Seguro</span>
+              <span className="brand-subtitle">UN ESPACIO PARA TI</span>
             </span>
           </Link>
 
@@ -119,13 +122,13 @@ export function AppShell({ children }) {
             </button>
           </StatusBanner>
         )}
-        {children}
+        {isAuthPage ? <div className="auth-layout"><aside className="auth-aside"><p className="hero-eyebrow">ENTRE LÍNEAS, TE ENCUENTRAS</p><Icon name="leaf" size={60}/><h2>Vuelve a ti.<br/><em>Una página<br/>a la vez.</em></h2><p>Un lugar para soltar el día,<br/>guardar lo bonito y escucharte.</p><span className="auth-aside-note"><Icon name="lock" size={16}/> Tus palabras, en tu espacio.</span></aside><div className="auth-form-panel"><span className="auth-form-eyebrow"><Icon name="book" size={18}/> TU LIBRETA PERSONAL</span>{children}</div></div> : children}
       </main>
 
       <footer className="app-footer">
         <div className="app-footer-inner">
-          <span>Entre Líneas — Diario Seguro</span>
-          <span>Cifrado AES-256-GCM en servidor · Sesiones HttpOnly en PostgreSQL</span>
+          <span className="footer-brand">Entre Líneas <span>Diario Seguro</span></span>
+          <span>Un espacio para escribir, un momento para ti.</span>
         </div>
       </footer>
     </div>

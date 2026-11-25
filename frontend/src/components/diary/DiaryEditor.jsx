@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { CATEGORIES, MOODS, MAX_CONTENT_CHARS, getTodayIsoDate } from '../../utils/diaryMeta.js';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges.js';
 import { Button } from '../ui/Button.jsx';
@@ -38,7 +38,22 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
     form.mood !== savedSnapshot.mood ||
     form.content !== savedSnapshot.content;
 
+  const formRef = useRef(null);
   const { confirmIfDirty, markClean } = useUnsavedChanges(isDirty);
+
+  // Atajo de teclado Ctrl+S / Cmd+S para guardar sin despegar las manos del teclado.
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (!submitting && !deleting && formRef.current) {
+          formRef.current.requestSubmit();
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [submitting, deleting]);
 
   function handleFieldChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -150,8 +165,8 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
           <h2>{isEditing ? 'Editar entrada' : 'Nueva entrada'}</h2>
           <p className="field-hint" style={{ margin: 0 }}>
             {isEditing
-              ? `Versión ${form.version} · Cifrada en servidor con AES-256-GCM`
-              : 'Escribe con calma; tus palabras se cifran antes de guardarse en PostgreSQL.'}
+              ? 'Vuelve a tus palabras. Siempre hay algo más que contar.'
+              : 'Respira, haz una pausa y empieza por donde quieras.'}
           </p>
         </div>
         <Button variant="ghost" onClick={requestClose}>
@@ -185,7 +200,7 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
         </StatusBanner>
       )}
 
-      <form onSubmit={handleSubmit} noValidate>
+      <form ref={formRef} onSubmit={handleSubmit} noValidate>
         <div className="field">
           <label className="field-label" htmlFor={titleId}>
             Título *

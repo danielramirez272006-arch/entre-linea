@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
 
       - name: 1b. Escaneo de secretos en historial con Gitleaks
-        uses: gitleaks/gitleaks-action@cb7149a900a058b4e38660a557489c3b859a8708 # v2.3.9
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

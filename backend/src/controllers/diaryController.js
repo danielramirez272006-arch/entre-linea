@@ -6,7 +6,10 @@ export function createDiaryController({ diaryService }) {
     },
 
     async getOne(req, res) {
-      const entry = await diaryService.getEntry(req.auth.user.id, req.params.id);
+      const entry = await diaryService.getEntry(req.auth.user.id, req.params.id, {
+        ipAddress: req.ip,
+        requestPath: req.originalUrl,
+      });
       return res.status(200).json({ entry });
     },
 
@@ -16,12 +19,18 @@ export function createDiaryController({ diaryService }) {
     },
 
     async update(req, res) {
-      const entry = await diaryService.updateEntry(req.auth.user.id, req.params.id, req.validatedBody);
+      const entry = await diaryService.updateEntry(req.auth.user.id, req.params.id, req.validatedBody, {
+        ipAddress: req.ip,
+        requestPath: req.originalUrl,
+      });
       return res.status(200).json({ entry });
     },
 
     async remove(req, res) {
-      await diaryService.deleteEntry(req.auth.user.id, req.params.id);
+      await diaryService.deleteEntry(req.auth.user.id, req.params.id, {
+        ipAddress: req.ip,
+        requestPath: req.originalUrl,
+      });
       return res.status(200).json({ deleted: true });
     },
   });

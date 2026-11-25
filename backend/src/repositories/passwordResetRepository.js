@@ -21,6 +21,15 @@ export function createPasswordResetRepository(pool) {
       );
     },
 
+    async invalidateById(id, client) {
+      await exec(client).query(
+        `UPDATE password_reset_tokens
+         SET consumed_at = NOW()
+         WHERE id = $1 AND consumed_at IS NULL`,
+        [id]
+      );
+    },
+
     async findActiveUserIdByHash(tokenHash, client) {
       const { rows } = await exec(client).query(
         `SELECT user_id

@@ -2,7 +2,31 @@ import { randomUUID } from 'node:crypto';
 import { MAX_DIARY_ENTRIES_PER_USER } from '../validators/schemas.js';
 import { AppError } from './errors.js';
 
-export function createDiaryService({ withTx, usersRepo, diaryRepo, cryptoService }) {
+export function createDiaryService({ withTx, usersRepo, diaryRepo, cryptoService, auditRepo, logger }) {
+  /**
+   * Registra intentos denegados de acceso sobre entradas inexistentes o ajenas
+   * fuera de cualquier transacción con rollback, sin revelar existencia del recurso.
+   * Si falla la auditoría, registra el incidente de forma segura y el acceso sigue denegado.
+   */
+  async function recordDeniedEntryAccess({ actorUserId, entryId, action, ipAddress = null, requestPath = null }) {
+    if (!auditRepo) return;
+    try {
+      await auditRepo.insert({
+        eventType: 'diary_access_denied',
+        severity: 'warn',
+        actorUserId,
+        ipAddress,
+        requestPath,
+        details: { action, targetEntryId: entryId },
+      });
+    } catch (err) {
+      logger?.error(
+        { event: 'diary_audit_insert_failed', action, code: err?.code },
+        'No se pudo registrar intento denegado en bitácora de diario'
+      );
+    }
+  }
+
   function decryptRow(row) {
     const title = cryptoService.decryptField(
       {
@@ -65,9 +89,16 @@ export function createDiaryService({ withTx, usersRepo, diaryRepo, cryptoService
       };
     },
 
-    async getEntry(ownerId, entryId) {
+    async getEntry(ownerId, entryId, requestContext = {}) {
       const row = await diaryRepo.findByIdAndOwner(entryId, ownerId);
       if (!row) {
+        await recordDeniedEntryAccess({
+          actorUserId: ownerId,
+          entryId,
+          action: 'read',
+          ipAddress: requestContext.ipAddress,
+          requestPath: requestContext.requestPath,
+        });
         throw new AppError(404, 'Entrada no encontrada.', { code: 'ENTRY_NOT_FOUND' });
       }
       return decryptRow(row);
@@ -124,7 +155,7 @@ export function createDiaryService({ withTx, usersRepo, diaryRepo, cryptoService
       return decryptRow(created);
     },
 
-    async updateEntry(ownerId, entryId, { title, entryDate, category, mood, content, version }) {
+    async updateEntry(ownerId, entryId, { title, entryDate, category, mood, content, version }, requestContext = {}) {
       const keyVersion = cryptoService.activeKeyVersion;
       const titleCrypto = cryptoService.encryptField(title, {
         ownerId,
@@ -139,63 +170,87 @@ export function createDiaryService({ withTx, usersRepo, diaryRepo, cryptoService
         keyVersion,
       });
 
-      const updated = await withTx(async (client) => {
-        const existing = await diaryRepo.findByIdAndOwner(entryId, ownerId, client);
-        if (!existing) {
-          throw new AppError(404, 'Entrada no encontrada.', { code: 'ENTRY_NOT_FOUND' });
-        }
+      let notFound = false;
 
-        if (existing.version !== version) {
-          throw new AppError(
-            409,
-            'Esta entrada fue modificada en otra pestaña o sesión. Revisa la versión más reciente antes de guardar.',
+      try {
+        const updated = await withTx(async (client) => {
+          const existing = await diaryRepo.findByIdAndOwner(entryId, ownerId, client);
+          if (!existing) {
+            notFound = true;
+            throw new AppError(404, 'Entrada no encontrada.', { code: 'ENTRY_NOT_FOUND' });
+          }
+
+          if (existing.version !== version) {
+            throw new AppError(
+              409,
+              'Esta entrada fue modificada en otra pestaña o sesión. Revisa la versión más reciente antes de guardar.',
+              {
+                code: 'VERSION_CONFLICT',
+                details: {
+                  currentEntry: decryptRow(existing),
+                },
+              }
+            );
+          }
+
+          const row = await diaryRepo.updateWithVersion(
             {
-              code: 'VERSION_CONFLICT',
-              details: {
-                currentEntry: decryptRow(existing),
-              },
-            }
+              id: entryId,
+              ownerId,
+              expectedVersion: version,
+              entryDate,
+              category,
+              mood,
+              titleCrypto,
+              contentCrypto,
+              keyVersion,
+            },
+            client
           );
+
+          if (!row) {
+            const latest = await diaryRepo.findByIdAndOwner(entryId, ownerId, client);
+            throw new AppError(
+              409,
+              'Esta entrada fue modificada en otra pestaña o sesión. Revisa la versión más reciente antes de guardar.',
+              {
+                code: 'VERSION_CONFLICT',
+                details: {
+                  currentEntry: latest ? decryptRow(latest) : null,
+                },
+              }
+            );
+          }
+
+          return row;
+        });
+
+        return decryptRow(updated);
+      } catch (err) {
+        if (notFound) {
+          // Persistido fuera de la transacción para que el ROLLBACK nunca borre el evento de auditoría.
+          await recordDeniedEntryAccess({
+            actorUserId: ownerId,
+            entryId,
+            action: 'update',
+            ipAddress: requestContext.ipAddress,
+            requestPath: requestContext.requestPath,
+          });
         }
-
-        const row = await diaryRepo.updateWithVersion(
-          {
-            id: entryId,
-            ownerId,
-            expectedVersion: version,
-            entryDate,
-            category,
-            mood,
-            titleCrypto,
-            contentCrypto,
-            keyVersion,
-          },
-          client
-        );
-
-        if (!row) {
-          const latest = await diaryRepo.findByIdAndOwner(entryId, ownerId, client);
-          throw new AppError(
-            409,
-            'Esta entrada fue modificada en otra pestaña o sesión. Revisa la versión más reciente antes de guardar.',
-            {
-              code: 'VERSION_CONFLICT',
-              details: {
-                currentEntry: latest ? decryptRow(latest) : null,
-              },
-            }
-          );
-        }
-
-        return row;
-      });
-
-      return decryptRow(updated);
+        throw err;
+      }
     },
 
-    async deleteEntry(ownerId, entryId) {
+    async deleteEntry(ownerId, entryId, requestContext = {}) {
       const deleted = await diaryRepo.deleteByIdAndOwner(entryId, ownerId);
       if (!deleted) {
+        await recordDeniedEntryAccess({
+          actorUserId: ownerId,
+          entryId,
+          action: 'delete',
+          ipAddress: requestContext.ipAddress,
+          requestPath: requestContext.requestPath,
+        });
         throw new AppError(404, 'Entrada no encontrada.', { code: 'ENTRY_NOT_FOUND' });
       }
       return { deleted: true };

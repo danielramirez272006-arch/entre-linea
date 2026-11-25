@@ -76,6 +76,7 @@ export function createApp({
     passwordResetRepo: repos.passwordResetRepo,
     auditRepo: repos.auditRepo,
     mailer,
+    logger,
     hooks: serviceHooks.auth || {},
   });
   const diaryService = createDiaryService({
@@ -83,6 +84,8 @@ export function createApp({
     usersRepo: repos.usersRepo,
     diaryRepo: repos.diaryRepo,
     cryptoService,
+    auditRepo: repos.auditRepo,
+    logger,
   });
   const profileService = createProfileService({
     usersRepo: repos.usersRepo,

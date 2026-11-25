@@ -27,5 +27,9 @@ export function createRateLimitRepository(pool) {
         windowResetAt: new Date(rows[0].window_reset_at),
       };
     },
+
+    async deleteExpired(client) {
+      await exec(client).query(`DELETE FROM rate_limits WHERE window_reset_at <= NOW()`);
+    },
   });
 }

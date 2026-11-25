@@ -11,6 +11,7 @@ export function createAuthService({
   passwordResetRepo,
   auditRepo,
   mailer,
+  logger,
   hooks = {},
 }) {
   async function issueSession({ userId, ipAddress, userAgent }, client) {
@@ -279,14 +280,17 @@ export function createAuthService({
     },
 
     async requestPasswordReset({ email }, { ipAddress, requestPath }) {
+      const genericResponse = {
+        message: 'Si el correo está registrado, enviaremos instrucciones para restablecer tu contraseña.',
+      };
+
       const user = await usersRepo.findByEmail(email);
       if (!user) {
         // Respuesta idéntica para evitar enumeración de cuentas.
-        return {
-          message: 'Si el correo está registrado, enviaremos instrucciones para restablecer tu contraseña.',
-        };
+        return genericResponse;
       }
 
+      const tokenId = randomUUID();
       const rawToken = generateOpaqueToken(32);
       const tokenHash = sha256Hex(rawToken);
       const expiresAt = new Date(Date.now() + config.passwordResetTtlMs);
@@ -295,7 +299,7 @@ export function createAuthService({
         await usersRepo.findByIdForUpdate(user.id, client);
         await passwordResetRepo.invalidateAllForUser(user.id, client);
         await passwordResetRepo.create(
-          { id: randomUUID(), userId: user.id, tokenHash, expiresAt },
+          { id: tokenId, userId: user.id, tokenHash, expiresAt },
           client
         );
         await auditRepo.insert(
@@ -314,16 +318,46 @@ export function createAuthService({
       const resetUrl = `${config.appOrigin}/restablecer?token=${encodeURIComponent(rawToken)}`;
       const expiresMinutes = Math.round(config.passwordResetTtlMs / 60000);
 
-      await mailer.sendPasswordResetEmail({
-        to: user.email,
-        name: user.name,
-        resetUrl,
-        expiresMinutes,
-      });
+      try {
+        await mailer.sendPasswordResetEmail({
+          to: user.email,
+          name: user.name,
+          resetUrl,
+          expiresMinutes,
+        });
+      } catch (err) {
+        const reasonCode = err?.code || 'MAIL_DELIVERY_FAILED';
+        // Registro interno seguro sin correo, token, enlace ni credenciales.
+        logger?.error(
+          { event: 'password_reset_delivery_failed', reasonCode, status: err?.status },
+          'Fallo al entregar correo de recuperación'
+        );
 
-      return {
-        message: 'Si el correo está registrado, enviaremos instrucciones para restablecer tu contraseña.',
-      };
+        // Invalida únicamente el token de esta solicitud para no afectar tokens nuevos de solicitudes concurrentes.
+        try {
+          await passwordResetRepo.invalidateById(tokenId);
+        } catch (invErr) {
+          logger?.error(
+            { event: 'password_reset_token_invalidation_failed', code: invErr?.code },
+            'No se pudo invalidar token de recuperación tras fallo de entrega'
+          );
+        }
+
+        try {
+          await auditRepo.insert({
+            eventType: 'password_reset_delivery_failed',
+            severity: 'warn',
+            targetUserId: user.id,
+            ipAddress,
+            requestPath,
+            details: { reasonCode },
+          });
+        } catch {
+          // No interrumpir ni revelar fallo en la respuesta pública.
+        }
+      }
+
+      return genericResponse;
     },
 
     async resetPassword({ token, newPassword }, { ipAddress, requestPath }) {

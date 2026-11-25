@@ -131,6 +131,46 @@ Las pruebas de integración ejecutan `TRUNCATE` sobre las tablas de prueba y **n
    npm run test:integration
    ```
 
+## Despliegue en producción (Render)
+
+El repositorio incluye [render.yaml](render.yaml) y [Dockerfile](Dockerfile) (multi-stage con usuario no root `appuser` y migraciones automáticas idempotentes al arrancar).
+
+### Pasos para desplegar en Render
+1. Entra a [Render Dashboard](https://dashboard.render.com/), selecciona **New + → Blueprint** y conecta tu repositorio de GitHub (`entre-linea`).
+2. Render detectará `render.yaml`, creará la base PostgreSQL gestionada (`entre-lineas-db`) y el servicio web Docker (`entre-lineas-diario-seguro`).
+3. En la pantalla de variables pendientes (`sync: false`) o en **Environment** del servicio web, configura:
+   - `APP_ORIGIN`: la URL pública HTTPS asignada por Render (ej. `https://entre-lineas-diario-seguro.onrender.com`, sin barra final).
+   - `ENCRYPTION_KEYS_JSON`: `{"v1":"<64_HEX_ALEATORIOS>"}` generados con:
+     ```bash
+     node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+     ```
+4. Al iniciar el contenedor, se ejecutan automáticamente las migraciones (`001_initial_schema.sql` y `002_auth_version_and_concurrency.sql`) y luego arranca Express sirviendo la API y `frontend/dist/` en el mismo origen sobre HTTPS.
+5. Verifica salud en `https://<tu-url>.onrender.com/health` (`{"status":"ok"}`).
+6. Para crear el primer administrador en producción, ejecuta localmente apuntando temporalmente a la **External Database URL** de Render (con `DB_SSL=true`) o desde el shell del servicio:
+   ```powershell
+   $env:DATABASE_URL="<EXTERNAL_DATABASE_URL_DE_RENDER>"
+   $env:DB_SSL="true"
+   $env:DB_SSL_REJECT_UNAUTHORIZED="false"
+   $env:ENCRYPTION_KEYS_JSON='{"v1":"<TU_LLAVE_64_HEX>"}'
+   npm run admin:create
+   ```
+
+## Verificación posterior al despliegue (Fase 4)
+
+Una vez activa tu URL pública `https://<tu-url>.onrender.com`, ejecuta las siguientes verificaciones únicamente sobre tu propia aplicación:
+
+1. **Cabeceras HTTP (A02):** analiza tu URL en https://securityheaders.com/ (esperado: calificación **A / A+** gracias a Helmet CSP, HSTS, `Referrer-Policy`, `X-Content-Type-Options` y `Permissions-Policy`).
+2. **TLS / Certificado HTTPS (A04):** analiza tu dominio en https://www.ssllabs.com/ssltest/.
+3. **OWASP ZAP Baseline Scan (con Docker local):**
+   ```powershell
+   docker run --rm -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t https://<tu-url>.onrender.com
+   ```
+4. **Demo de ataques bloqueados (para presentación de 10 minutos):**
+   - **IDOR (A01):** Usuario A intenta `GET /api/diary/<id_de_B>` → `404` + evento `diary_access_denied` en bitácora.
+   - **Fuerza bruta (A07):** 5 intentos fallidos de login → `HTTP 429` con `Retry-After` + alerta `brute_force_alert` en bitácora.
+   - **CSRF / Origen no permitido (A08):** `POST /api/diary` sin `X-CSRF-Token` o con `Origin: https://atacante.ejemplo` → `HTTP 403`.
+   - **Inyección SQL / XSS (A05):** `GET /api/diary/' OR 1=1 --` → `HTTP 400`; `<script>alert(1)</script>` en título se renderiza como texto plano neutralizado.
+
 ## Limitaciones conocidas de esta etapa
 
 - La prueba de integración contra PostgreSQL real requiere `NODE_ENV=test` y `TEST_DATABASE_URL` apuntando a una base local desechable; si falta `TEST_DATABASE_URL`, la suite informa explícitamente que no se ejecutó.

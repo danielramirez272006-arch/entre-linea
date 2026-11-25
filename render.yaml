@@ -1,0 +1,42 @@
+# Render Blueprint — Entre Líneas (Diario Seguro)
+# Los secretos (ENCRYPTION_KEYS_JSON y APP_ORIGIN) se configuran en el panel
+# de Environment de Render (sync: false) y NUNCA se guardan en este archivo.
+
+databases:
+  - name: entre-lineas-db
+    databaseName: entre_lineas
+    plan: free
+
+services:
+  - type: web
+    name: entre-lineas-diario-seguro
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DB_SSL
+        value: "true"
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: entre-lineas-db
+          property: connectionString
+      - key: APP_ORIGIN
+        sync: false
+      - key: ENCRYPTION_ACTIVE_KEY_VERSION
+        value: v1
+      - key: ENCRYPTION_KEYS_JSON
+        sync: false
+      - key: MAIL_DRIVER
+        value: local
+      - key: LOG_LEVEL
+        value: info

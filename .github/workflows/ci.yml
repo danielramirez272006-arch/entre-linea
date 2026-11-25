@@ -31,6 +31,13 @@ jobs:
     steps:
       - name: 1. Checkout del commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: 1b. Escaneo de secretos en historial con Gitleaks
+        uses: gitleaks/gitleaks-action@cb7149a900a058b4e38660a557489c3b859a8708 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 2. Configurar Node.js LTS con caché npm
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

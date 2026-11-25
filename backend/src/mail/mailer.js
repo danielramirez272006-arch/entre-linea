@@ -52,6 +52,7 @@ export function createMailer(config, logger, { fetchImpl = fetch } = {}) {
     }
 
     if (config.mailDriver === 'https-api') {
+      const isBrevo = config.mailApiUrl === 'https://api.brevo.com/v3/smtp/email';
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -60,10 +61,16 @@ export function createMailer(config, logger, { fetchImpl = fetch } = {}) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.mailApiKey}`,
+            ...(isBrevo ? { 'api-key': config.mailApiKey } : { Authorization: `Bearer ${config.mailApiKey}` }),
           },
           signal: controller.signal,
-          body: JSON.stringify({
+          redirect: 'error',
+          body: JSON.stringify(isBrevo ? {
+            sender: { name: 'Entre Líneas', email: config.mailFrom },
+            to: [{ email: to }],
+            subject,
+            textContent: textBody,
+          } : {
             from: config.mailFrom,
             to,
             subject,

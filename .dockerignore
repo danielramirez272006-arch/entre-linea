@@ -1,0 +1,13 @@
+node_modules
+.git
+.env
+.env.*
+backend/.env
+frontend/.env
+backend/.dev-mail
+.dev-mail
+frontend/dist
+docs
+tests
+*.log
+*.md

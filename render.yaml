@@ -6,6 +6,8 @@ databases:
   - name: entre-lineas-db
     databaseName: entre_lineas
     plan: free
+    region: oregon
+    ipAllowList: []
 
 services:
   - type: web
@@ -14,7 +16,8 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /health
-    autoDeploy: true
+    region: oregon
+    autoDeployTrigger: checksPass
     envVars:
       - key: NODE_ENV
         value: production

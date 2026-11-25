@@ -1,0 +1,92 @@
+/* Tokens de diseño — Entre Líneas (paleta editorial cálida) */
+:root {
+  /* Colores de superficie */
+  --color-bg: #f6f1e7;
+  --color-bg-subtle: #efe8da;
+  --color-paper: #fcfaf4;
+  --color-paper-elevated: #ffffff;
+
+  /* Tinta y contraste (WCAG AA/AAA) */
+  --color-ink: #1e2421;
+  --color-ink-secondary: #48524c;
+  --color-ink-muted: #616b64;
+
+  /* Verde salvia profundo (primario) */
+  --color-sage: #2b473c;
+  --color-sage-hover: #1f362d;
+  --color-sage-soft: #e6efe9;
+  --color-sage-border: #bfd2c6;
+
+  /* Terracota discreto (acento) */
+  --color-terracotta: #a94f2d;
+  --color-terracotta-hover: #8d3e21;
+  --color-terracotta-soft: #f7e8e1;
+  --color-terracotta-border: #e3bfb0;
+
+  /* Estados semánticos */
+  --color-success-bg: #e7f2eb;
+  --color-success-text: #1c4d32;
+  --color-success-border: #b4d4c0;
+
+  --color-warn-bg: #fbf2de;
+  --color-warn-text: #6e4809;
+  --color-warn-border: #e5ca91;
+
+  --color-danger-bg: #fae9e6;
+  --color-danger-text: #842318;
+  --color-danger-border: #e6b5ad;
+
+  /* Bordes */
+  --color-border: #ddd4c3;
+  --color-border-strong: #c4b8a2;
+  --color-rule: #eae2d2;
+
+  /* Tipografía sin dependencias CDN */
+  --font-serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Times New Roman', serif;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Escala tipográfica */
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: clamp(1.9rem, 3.6vw, 2.65rem);
+
+  /* Espaciado */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Radios */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Sombras suaves de papel */
+  --shadow-xs: 0 1px 2px rgba(30, 36, 33, 0.05);
+  --shadow-sm: 0 2px 8px rgba(30, 36, 33, 0.06), 0 1px 2px rgba(30, 36, 33, 0.04);
+  --shadow-md: 0 10px 28px rgba(30, 36, 33, 0.09), 0 2px 6px rgba(30, 36, 33, 0.05);
+  --shadow-dialog: 0 20px 48px rgba(24, 30, 27, 0.22);
+
+  /* Movimiento */
+  --dur-micro: 160ms;
+  --dur-panel: 240ms;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Foco visible */
+  --focus-ring: 0 0 0 3px rgba(169, 79, 45, 0.35);
+
+  /* Contenedores */
+  --container-max: 1040px;
+  --container-narrow: 520px;
+}

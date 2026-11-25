@@ -28,5 +28,7 @@
 ## Riesgos residuales y controles dependientes de producción
 
 - **No es cifrado E2EE:** Un atacante con control total del servidor en ejecución y acceso a las variables de entorno podría descifrar datos. Esto se comunica de forma honesta en la pantalla de inicio.
+- **Diferencias de tiempo en recuperación de contraseña:** Aunque la respuesta HTTP pública es siempre `200` genérica (incluso si falla el proveedor de correo) y el token fallido se invalida individualmente por `id`, una entrega HTTPS externa puede tardar más que un correo inexistente. Se mitiga parcialmente con rate limiting compartido y puede mitigarse en producción mediante cola asíncrona o piso de tiempo constante.
+- **Política ante fallo de bitácora en diario:** Los intentos denegados (`read`/`update`/`delete`) se registran fuera de transacciones con rollback; si la escritura en `security_audit_logs` fallara, el error se registra en Pino de forma segura y el acceso **permanece denegado (`404`)**.
 - **Pérdida de llaves:** Perder todas las copias de `ENCRYPTION_KEYS_JSON` imposibilita recuperar entradas y campos cifrados.
 - **Controles a verificar en despliegue posterior:** Terminación TLS/HTTPS, cabecera HSTS, flag `Secure` en cookies bajo HTTPS, `TRUST_PROXY` ajustado al proxy inverso real, gestión de secretos en bóveda/KMS y monitoreo externo de alertas.

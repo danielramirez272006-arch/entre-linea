@@ -77,9 +77,10 @@ npm run admin:create
 | `npm run db:migrate` | Aplica las migraciones SQL pendientes en PostgreSQL |
 | `npm run admin:create` | Crea o promueve el primer administrador desde consola |
 | `npm run keys:rotate` | Re-cifra entradas y campos sensibles hacia `ENCRYPTION_ACTIVE_KEY_VERSION` |
-| `npm run test:unit` | Ejecuta pruebas unitarias de criptografía, validación y flujos HTTP de seguridad |
-| `npm run test:integration` | Ejecuta pruebas de integración contra PostgreSQL real (`TEST_DATABASE_URL` o `DATABASE_URL`) |
-| `npm run test:e2e` | Ejecuta prueba de extremo a extremo sirviendo el build React desde Express |
+| `npm run test:unit` | Ejecuta pruebas unitarias, `dbGuard`, correo/resiliencia, auditoría y flujos HTTP (repositorio simulado) |
+| `npm run test:integration` | Ejecuta pruebas de integración y concurrencia contra PostgreSQL real (`TEST_DATABASE_URL`) |
+| `npm run test:browser` | Ejecuta pruebas completas de navegador Playwright (React + Express + PostgreSQL desechable) |
+| `npm run test:e2e` | Ejecuta prueba HTTP de humo sirviendo `frontend/dist/` desde Express |
 | `npm test` | Ejecuta pruebas unitarias e integración del servidor |
 | `npm run audit:check` | Verifica vulnerabilidades altas o críticas con `npm audit` |
 

@@ -1,13 +1,13 @@
 # Entre Líneas — Diario Seguro
 
-Aplicación web de diario personal privado construida como monorepo (`client` + `server`) con enfoque de seguridad en profundidad para la etapa de desarrollo local del laboratorio SecureVault.
+Aplicación web de diario personal privado construida como monorepo (`frontend` + `backend`) con enfoque de seguridad en profundidad para la etapa de desarrollo local del laboratorio SecureVault.
 
 > **Alcance de esta etapa:** Desarrollo local, controles de seguridad, pruebas automatizadas y documentación técnica. El despliegue público, escaneos de producción y publicación en plataformas quedan para una etapa posterior.
 
 ## Tecnologías
 
-- **Frontend (`client/`):** React 19, React Router 7, Vite 6, JavaScript (`.js`/`.jsx`), HTML y CSS propio con tokens de diseño (sin TypeScript ni framework visual).
-- **Backend (`server/`):** Node.js LTS (`>=20.11`), Express 5, PostgreSQL (`pg` con consultas parametrizadas), Zod 4, Argon2id (`argon2`), `node:crypto` (AES-256-GCM y SHA-256), Helmet, CORS y Pino (logs JSON redactados).
+- **Frontend (`frontend/`):** React 19, React Router 7, Vite 6, JavaScript (`.js`/`.jsx`), HTML y CSS propio con tokens de diseño (sin TypeScript ni framework visual).
+- **Backend (`backend/`):** Node.js LTS (`>=20.11`), Express 5, PostgreSQL (`pg` con consultas parametrizadas), Zod 4, Argon2id (`argon2`), `node:crypto` (AES-256-GCM y SHA-256), Helmet, CORS y Pino (logs JSON redactados).
 
 ## Requisitos previos
 
@@ -32,7 +32,7 @@ Copia `.env.example` a `.env` en la raíz del proyecto:
 cp .env.example .env
 ```
 
-El servidor carga `.env` automáticamente desde la raíz mediante `server/src/config/env.js` (los secretos permanecen exclusivamente en el servidor; cualquier variable `VITE_*` quedaría expuesta en el bundle del navegador y no se utiliza para secretos).
+El servidor carga `.env` automáticamente desde la raíz mediante `backend/src/config/env.js` (los secretos permanecen exclusivamente en el servidor; cualquier variable `VITE_*` quedaría expuesta en el bundle del navegador y no se utiliza para secretos).
 
 ### 3. Generar llave maestra AES-256-GCM (32 bytes / 64 hex)
 
@@ -70,10 +70,10 @@ npm run admin:create
 | Comando | Descripción |
 | --- | --- |
 | `npm run dev` | Inicia backend Express (`:3001`) y frontend Vite (`:5173` con proxy `/api` y `/health`) |
-| `npm run dev:server` | Inicia solo el backend con `--watch` |
-| `npm run dev:client` | Inicia solo el servidor de desarrollo Vite |
-| `npm run build` | Compila el frontend React en `client/dist/` |
-| `npm start` | Ejecuta Express sirviendo API y `client/dist/` en el mismo origen |
+| `npm run dev:backend` | Inicia solo el backend con `--watch` |
+| `npm run dev:frontend` | Inicia solo el servidor de desarrollo Vite |
+| `npm run build` | Compila el frontend React en `frontend/dist/` |
+| `npm start` | Ejecuta Express sirviendo API y `frontend/dist/` en el mismo origen |
 | `npm run db:migrate` | Aplica las migraciones SQL pendientes en PostgreSQL |
 | `npm run admin:create` | Crea o promueve el primer administrador desde consola |
 | `npm run keys:rotate` | Re-cifra entradas y campos sensibles hacia `ENCRYPTION_ACTIVE_KEY_VERSION` |
@@ -99,7 +99,7 @@ npm run admin:create
 
 ## Recuperación de contraseña en desarrollo
 
-En desarrollo (`MAIL_DRIVER=local`), los correos de recuperación se escriben en `server/.dev-mail/` (ignorado por Git). Los tokens nunca se devuelven en respuestas HTTP ni se imprimen en los logs JSON de Pino. Para entornos posteriores puede configurarse `MAIL_DRIVER=https-api` con `MAIL_API_URL` (HTTPS) y `MAIL_API_KEY`.
+En desarrollo (`MAIL_DRIVER=local`), los correos de recuperación se escriben en `backend/.dev-mail/` (ignorado por Git). Los tokens nunca se devuelven en respuestas HTTP ni se imprimen en los logs JSON de Pino. Para entornos posteriores puede configurarse `MAIL_DRIVER=https-api` con `MAIL_API_URL` (HTTPS) y `MAIL_API_KEY`.
 
 ## Decisiones criptográficas y privacidad honesta
 

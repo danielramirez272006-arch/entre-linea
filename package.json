@@ -23,7 +23,11 @@
     "test": "npm run test --workspace=backend",
     "test:unit": "npm run test:unit --workspace=backend",
     "test:integration": "npm run test:integration --workspace=backend",
-    "test:e2e": "node --test tests/e2e/*.test.js",
+    "test:e2e": "node --test tests/e2e/smoke.e2e.test.js",
+    "test:browser": "node --test tests/e2e/browser.e2e.test.js",
     "audit:check": "npm audit --audit-level=high"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
   }
 }

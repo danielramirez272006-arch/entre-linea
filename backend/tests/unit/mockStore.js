@@ -264,6 +264,11 @@ export function createInMemoryTestStore() {
         if (t.user_id === userId && !t.consumed_at) t.consumed_at = new Date();
       }
     },
+    async invalidateById(id) {
+      for (const t of resetTokens.values()) {
+        if (t.id === id && !t.consumed_at) t.consumed_at = new Date();
+      }
+    },
     async findActiveUserIdByHash(tokenHash) {
       const t = resetTokens.get(tokenHash);
       if (!t || t.consumed_at || new Date(t.expires_at).getTime() <= Date.now()) {

@@ -1,15 +1,22 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 
-import { createDbPool } from '../../src/db/pool.js';
+import { createDbPool, withTransaction } from '../../src/db/pool.js';
 import { createApp } from '../../src/app.js';
 import { createLogger } from '../../src/config/logger.js';
+import { createCryptoService } from '../../src/security/crypto.js';
+import { createUsersRepository } from '../../src/repositories/usersRepository.js';
+import { createDiaryRepository } from '../../src/repositories/diaryRepository.js';
 import { runMigrations } from '../../scripts/migrate.js';
 import { validateIntegrationTestConfig } from './dbGuard.js';
 
 const guard = validateIntegrationTestConfig();
+const requireIntegrationDb = process.env.CI === 'true' || process.env.REQUIRE_INTEGRATION_DB === 'true';
 
 if (guard.unsafe) {
   throw new Error(`EJECUCIÓN ABORTADA POR SEGURIDAD: ${guard.reason}`);
@@ -36,6 +43,9 @@ async function probePostgres(url) {
 const pgStatus = guard.run ? await probePostgres(guard.url) : { ok: false, reason: guard.reason };
 
 if (!pgStatus.ok) {
+  if (requireIntegrationDb) {
+    throw new Error(`INTEGRACIÓN OBLIGATORIA EN CI FALLIDA: ${pgStatus.reason}`);
+  }
   console.warn(`[integracion-pg] Suite NO ejecutada: ${pgStatus.reason}`);
 }
 
@@ -376,5 +386,357 @@ describe('Integración con PostgreSQL real (base desechable)', { skip: !pgStatus
 
     const { rows: targetRows } = await pool.query('SELECT role FROM users WHERE id = $1', [rU.body.user.id]);
     assert.equal(targetRows[0].role, 'user', 'El usuario objetivo no debe haber sido promovido');
+  });
+
+  it('Correo local real: guarda archivo .txt en DEV_MAIL_DIR y completa restablecimiento de contraseña', async () => {
+    const tmpMailDir = await fs.mkdtemp(path.join(os.tmpdir(), 'entre-lineas-mail-'));
+    try {
+      const app = createApp({
+        config: { ...baseConfig, mailDriver: 'local', devMailDir: tmpMailDir },
+        logger: createLogger('silent'),
+        pool,
+      });
+
+      const reg = await request(app).post('/api/auth/register').send({
+        name: 'Correo Local',
+        email: 'correo@ejemplo.com',
+        password: 'Clave!Inicial2026',
+      });
+      assert.equal(reg.status, 201);
+
+      const forgot = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'correo@ejemplo.com' });
+      assert.equal(forgot.status, 200);
+
+      const files = await fs.readdir(tmpMailDir);
+      assert.equal(files.length, 1);
+      const emailContent = await fs.readFile(path.join(tmpMailDir, files[0]), 'utf8');
+      const urlMatch = emailContent.match(/http:\/\/localhost:5173\/restablecer\?token=([0-9a-f]{64})/);
+      assert.ok(urlMatch, 'El correo guardado debe contener el enlace con token de 64 hex');
+
+      const reset = await request(app).post('/api/auth/reset-password').send({
+        token: urlMatch[1],
+        newPassword: 'Clave!Restablecida2026',
+      });
+      assert.equal(reset.status, 200);
+
+      const loginNew = await request(app).post('/api/auth/login').send({
+        email: 'correo@ejemplo.com',
+        password: 'Clave!Restablecida2026',
+      });
+      assert.equal(loginNew.status, 200);
+    } finally {
+      await fs.rm(tmpMailDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Rotación de llaves real (v1 -> v2) en PostgreSQL preserva lectura de entradas y perfil', async () => {
+    const keyV1 = baseConfig.encryptionKeys.get('v1');
+    const keyV2 = randomBytes(32);
+
+    const appV1 = createApp({ config: baseConfig, logger: createLogger('silent'), pool });
+    const agent = request.agent(appV1);
+
+    const reg = await agent.post('/api/auth/register').send({
+      name: 'Rotación PG',
+      email: 'rotacion@ejemplo.com',
+      password: 'Clave!Rotacion2026',
+    });
+    assert.equal(reg.status, 201);
+
+    await agent
+      .put('/api/profile')
+      .set('X-CSRF-Token', reg.body.csrfToken)
+      .send({ name: 'Rotación PG', phone: '+506 8888-7777', sensitiveNote: 'DATO-V1-99' });
+
+    const created = await agent
+      .post('/api/diary')
+      .set('X-CSRF-Token', reg.body.csrfToken)
+      .send({
+        title: 'Antes de rotar',
+        entryDate: '2026-11-25',
+        category: 'recuerdos',
+        mood: 'tranquilo',
+        content: 'Contenido cifrado inicialmente con v1.',
+      });
+    assert.equal(created.status, 201);
+
+    // Re-cifra registros de v1 hacia v2 en PostgreSQL
+    const cryptoV2 = createCryptoService({
+      activeKeyVersion: 'v2',
+      encryptionKeys: new Map([
+        ['v1', keyV1],
+        ['v2', keyV2],
+      ]),
+    });
+    const diaryRepo = createDiaryRepository(pool);
+    const usersRepo = createUsersRepository(pool);
+
+    await withTransaction(pool, async (client) => {
+      const outdatedEntries = await diaryRepo.listWithOutdatedKeyVersion('v2', client);
+      assert.equal(outdatedEntries.length, 1);
+      for (const row of outdatedEntries) {
+        const plainTitle = cryptoV2.decryptField(
+          { ciphertext: row.title_ciphertext, iv: row.title_iv, tag: row.title_tag, keyVersion: row.key_version },
+          { ownerId: row.owner_id, recordId: row.id, field: 'title' }
+        );
+        const plainContent = cryptoV2.decryptField(
+          { ciphertext: row.content_ciphertext, iv: row.content_iv, tag: row.content_tag, keyVersion: row.key_version },
+          { ownerId: row.owner_id, recordId: row.id, field: 'content' }
+        );
+        await diaryRepo.updateReencryptedEntry(
+          {
+            id: row.id,
+            ownerId: row.owner_id,
+            titleCrypto: cryptoV2.encryptField(plainTitle, { ownerId: row.owner_id, recordId: row.id, field: 'title', keyVersion: 'v2' }),
+            contentCrypto: cryptoV2.encryptField(plainContent, { ownerId: row.owner_id, recordId: row.id, field: 'content', keyVersion: 'v2' }),
+            keyVersion: 'v2',
+          },
+          client
+        );
+      }
+
+      const outdatedUsers = await usersRepo.listWithOutdatedKeyVersion('v2', client);
+      assert.equal(outdatedUsers.length, 1);
+      for (const u of outdatedUsers) {
+        const plainPhone = cryptoV2.decryptField(
+          { ciphertext: u.phone_ciphertext, iv: u.phone_iv, tag: u.phone_tag, keyVersion: u.phone_key_version },
+          { ownerId: u.id, recordId: u.id, field: 'phone' }
+        );
+        const plainNote = cryptoV2.decryptField(
+          { ciphertext: u.sensitive_note_ciphertext, iv: u.sensitive_note_iv, tag: u.sensitive_note_tag, keyVersion: u.sensitive_note_key_version },
+          { ownerId: u.id, recordId: u.id, field: 'sensitive_note' }
+        );
+        await usersRepo.updateReencryptedFields(
+          {
+            id: u.id,
+            phoneCrypto: cryptoV2.encryptField(plainPhone, { ownerId: u.id, recordId: u.id, field: 'phone', keyVersion: 'v2' }),
+            sensitiveNoteCrypto: cryptoV2.encryptField(plainNote, { ownerId: u.id, recordId: u.id, field: 'sensitive_note', keyVersion: 'v2' }),
+          },
+          client
+        );
+      }
+    });
+
+    // Instancia nueva solo con v2 (sin v1) debe descifrar todo correctamente
+    const appOnlyV2 = createApp({
+      config: { ...baseConfig, activeKeyVersion: 'v2', encryptionKeys: new Map([['v2', keyV2]]) },
+      logger: createLogger('silent'),
+      pool,
+    });
+    const cookie = reg.headers['set-cookie'];
+    const entriesRes = await request(appOnlyV2).get('/api/diary').set('Cookie', cookie);
+    assert.equal(entriesRes.status, 200);
+    assert.equal(entriesRes.body.entries[0].title, 'Antes de rotar');
+    assert.equal(entriesRes.body.entries[0].keyVersion, 'v2');
+
+    const profRes = await request(appOnlyV2).get('/api/profile').set('Cookie', cookie);
+    assert.equal(profRes.status, 200);
+    assert.equal(profRes.body.profile.phoneMasked, '•••• •••• 7777');
+    assert.equal(profRes.body.profile.phoneKeyVersion, 'v2');
+  });
+
+  it('Límite concurrente de 100 entradas en PostgreSQL real con FOR UPDATE', async () => {
+    const app = createApp({
+      config: { ...baseConfig, rateLimitMaxRequests: 500 },
+      logger: createLogger('silent'),
+      pool,
+    });
+    const agent = request.agent(app);
+
+    const reg = await agent.post('/api/auth/register').send({
+      name: 'Límite 100',
+      email: 'limite100@ejemplo.com',
+      password: 'Clave!Limite2026',
+    });
+    assert.equal(reg.status, 201);
+    const csrf = reg.body.csrfToken;
+
+    for (let i = 0; i < 99; i += 1) {
+      const r = await agent
+        .post('/api/diary')
+        .set('X-CSRF-Token', csrf)
+        .send({
+          title: `Nota ${i}`,
+          entryDate: '2026-11-25',
+          category: 'personal',
+          mood: 'normal',
+          content: `Contenido ${i}`,
+        });
+      assert.equal(r.status, 201);
+    }
+
+    // 3 solicitudes simultáneas cuando solo queda 1 cupo disponible
+    const race = await Promise.all(
+      [1, 2, 3].map((n) =>
+        agent
+          .post('/api/diary')
+          .set('X-CSRF-Token', csrf)
+          .send({
+            title: `Carrera ${n}`,
+            entryDate: '2026-11-25',
+            category: 'metas',
+            mood: 'bien',
+            content: 'Prueba concurrente en PostgreSQL real.',
+          })
+      )
+    );
+
+    assert.equal(race.filter((r) => r.status === 201).length, 1);
+    assert.equal(race.filter((r) => r.status === 409).length, 2);
+
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS total FROM diary_entries WHERE owner_id = $1', [
+      reg.body.user.id,
+    ]);
+    assert.equal(rows[0].total, 100);
+  });
+
+  it('Aislamiento por propietario y bitácora de accesos denegados en PostgreSQL real (persiste tras rollback)', async () => {
+    const app = createApp({ config: baseConfig, logger: createLogger('silent'), pool });
+    const agentA = request.agent(app);
+    const agentB = request.agent(app);
+
+    const rA = await agentA.post('/api/auth/register').send({
+      name: 'Propietario A',
+      email: 'propa@ejemplo.com',
+      password: 'Clave!PropA2026',
+    });
+    const rB = await agentB.post('/api/auth/register').send({
+      name: 'Propietario B',
+      email: 'propb@ejemplo.com',
+      password: 'Clave!PropB2026',
+    });
+
+    const entryB = await agentB
+      .post('/api/diary')
+      .set('X-CSRF-Token', rB.body.csrfToken)
+      .send({
+        title: 'Privado de B',
+        entryDate: '2026-11-25',
+        category: 'personal',
+        mood: 'bien',
+        content: 'Secreto exclusivo de B.',
+      });
+    const entryIdB = entryB.body.entry.id;
+
+    assert.equal((await agentA.get(`/api/diary/${entryIdB}`)).status, 404);
+    assert.equal(
+      (
+        await agentA
+          .put(`/api/diary/${entryIdB}`)
+          .set('X-CSRF-Token', rA.body.csrfToken)
+          .send({
+            title: 'Editado por A',
+            entryDate: '2026-11-25',
+            category: 'personal',
+            mood: 'bien',
+            content: 'No autorizado',
+            version: 1,
+          })
+      ).status,
+      404
+    );
+    assert.equal((await agentA.delete(`/api/diary/${entryIdB}`).set('X-CSRF-Token', rA.body.csrfToken)).status, 404);
+    assert.equal((await agentA.get('/api/admin/audit-logs')).status, 403);
+
+    const { rows: logs } = await pool.query(
+      `SELECT details FROM security_audit_logs
+       WHERE actor_user_id = $1 AND event_type = 'diary_access_denied'`,
+      [rA.body.user.id]
+    );
+    assert.equal(logs.length, 3);
+    assert.deepEqual(logs.map((r) => r.details.action).sort(), ['delete', 'read', 'update']);
+  });
+
+  it('Consumo simultáneo del mismo token de recuperación en PostgreSQL real: exactamente 1 éxito', async () => {
+    const sentEmails = [];
+    const app = createApp({
+      config: baseConfig,
+      logger: createLogger('silent'),
+      pool,
+      mailerOverride: {
+        async sendPasswordResetEmail(msg) {
+          sentEmails.push(msg);
+          return { delivered: true };
+        },
+      },
+    });
+
+    await request(app).post('/api/auth/register').send({
+      name: 'Token Concurrente',
+      email: 'tokconc@ejemplo.com',
+      password: 'Clave!Inicial2026',
+    });
+
+    await request(app).post('/api/auth/forgot-password').send({ email: 'tokconc@ejemplo.com' });
+    const token = new URL(sentEmails[0].resetUrl).searchParams.get('token');
+
+    const attempts = await Promise.all(
+      [1, 2, 3].map((i) =>
+        request(app).post('/api/auth/reset-password').send({
+          token,
+          newPassword: `Clave!Nueva${i}Segura2026`,
+        })
+      )
+    );
+
+    assert.equal(attempts.filter((r) => r.status === 200).length, 1);
+    assert.equal(attempts.filter((r) => r.status === 400).length, 2);
+  });
+
+  it('Conflictos de edición concurrente mediante versión en PostgreSQL real (409 VERSION_CONFLICT)', async () => {
+    const app = createApp({ config: baseConfig, logger: createLogger('silent'), pool });
+    const agent = request.agent(app);
+
+    const reg = await agent.post('/api/auth/register').send({
+      name: 'Conflicto Version',
+      email: 'conflicto@ejemplo.com',
+      password: 'Clave!Conflicto2026',
+    });
+    const csrf = reg.body.csrfToken;
+
+    const created = await agent
+      .post('/api/diary')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        title: 'Original v1',
+        entryDate: '2026-11-25',
+        category: 'gratitud',
+        mood: 'tranquilo',
+        content: 'Texto inicial.',
+      });
+    const entryId = created.body.entry.id;
+
+    const [edit1, edit2] = await Promise.all([
+      agent
+        .put(`/api/diary/${entryId}`)
+        .set('X-CSRF-Token', csrf)
+        .send({
+          title: 'Pestaña A',
+          entryDate: '2026-11-25',
+          category: 'gratitud',
+          mood: 'bien',
+          content: 'Edición A',
+          version: 1,
+        }),
+      agent
+        .put(`/api/diary/${entryId}`)
+        .set('X-CSRF-Token', csrf)
+        .send({
+          title: 'Pestaña B',
+          entryDate: '2026-11-25',
+          category: 'gratitud',
+          mood: 'normal',
+          content: 'Edición B',
+          version: 1,
+        }),
+    ]);
+
+    const statuses = [edit1.status, edit2.status].sort((a, b) => a - b);
+    assert.deepEqual(statuses, [200, 409]);
+    const conflictRes = edit1.status === 409 ? edit1 : edit2;
+    assert.equal(conflictRes.body.error.code, 'VERSION_CONFLICT');
+    assert.equal(conflictRes.body.error.details.currentEntry.version, 2);
   });
 });

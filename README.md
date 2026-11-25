@@ -115,8 +115,23 @@ En desarrollo (`MAIL_DRIVER=local`), los correos de recuperación se escriben en
 - [Modelo de amenazas y riesgos residuales](docs/amenazas.md)
 - [Matriz OWASP Top 10:2025](docs/matriz-owasp.md)
 
+### Pruebas de integración con base desechable de PostgreSQL
+
+Las pruebas de integración ejecutan `TRUNCATE` sobre las tablas de prueba y **nunca** hacen fallback a `DATABASE_URL`. Exigen explícitamente `NODE_ENV=test` y una `TEST_DATABASE_URL` local cuyo nombre termine en `_test` (o `-test` / `_testing` / prefijo `test_`) y sea distinta a `DATABASE_URL`.
+
+1. Crea una base desechable dedicada:
+   ```powershell
+   psql -U postgres -c "CREATE DATABASE entre_lineas_test;"
+   ```
+2. Ejecuta la suite de integración apuntando únicamente a esa base desechable:
+   ```powershell
+   $env:NODE_ENV="test"
+   $env:TEST_DATABASE_URL="postgres://postgres:<tu_clave>@localhost:5432/entre_lineas_test"
+   npm run test:integration
+   ```
+
 ## Limitaciones conocidas de esta etapa
 
-- La prueba de integración contra PostgreSQL real requiere una instancia activa de PostgreSQL configurada en `TEST_DATABASE_URL` o `DATABASE_URL` (si no está disponible en el entorno, la suite se omite informando el motivo).
+- La prueba de integración contra PostgreSQL real requiere `NODE_ENV=test` y `TEST_DATABASE_URL` apuntando a una base local desechable; si falta `TEST_DATABASE_URL`, la suite informa explícitamente que no se ejecutó.
 - Controles dependientes de despliegue en producción (TLS/HSTS en proxy inverso, `Secure` en cookies sobre HTTPS, correo transaccional HTTPS real y escaneos DAST) se verificarán en la etapa posterior.
 # entre-linea

@@ -1,6 +1,6 @@
 # Modelo de Datos — Entre Líneas
 
-Definido de forma reproducible en `backend/src/db/migrations/001_initial_schema.sql`.
+Definido de forma reproducible en `backend/src/db/migrations/001_initial_schema.sql` y `backend/src/db/migrations/002_auth_version_and_concurrency.sql`.
 
 ## Tablas y relaciones
 
@@ -11,7 +11,8 @@ Almacena cuentas, hashes Argon2id, control de bloqueo progresivo y campos person
 - **Restricciones:**
   - `email VARCHAR(254) NOT NULL UNIQUE` (normalizado en minúsculas)
   - `role VARCHAR(16) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'))`
-  - `failed_login_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_login_attempts >= 0)`
+  - `auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version >= 1)` (se incrementa atómicamente en cambios de contraseña y rol para invalidar carreras de autenticación o privilegios)
+  - `failed_login_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_login_attempts >= 0)` (incrementado atómicamente en SQL junto con el cálculo progresivo de `locked_until`)
   - Campos cifrados de teléfono (`phone_ciphertext`, `phone_iv`, `phone_tag`, `phone_key_version`) y dato sensible de prueba (`sensitive_note_*`) con restricciones `CHECK` que exigen completitud (o todos nulos o completos con `octet_length(iv) = 12` y `octet_length(tag) = 16`).
 
 ### 2. `sessions`

@@ -80,3 +80,11 @@ jobs:
 
       - name: 9. Auditoría de vulnerabilidades altas o críticas
         run: npm run audit:check
+
+      - name: 10. Verificar build de imagen Docker con usuario no-root
+        run: |
+          docker build -t entre-lineas:ci .
+          USER_CFG=$(docker inspect --format '{{.Config.User}}' entre-lineas:ci)
+          echo "Usuario del contenedor: $USER_CFG"
+          test "$USER_CFG" = "appuser"
+

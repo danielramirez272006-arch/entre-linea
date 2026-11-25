@@ -1,5 +1,5 @@
 # Etapa 1: Construcción del frontend React y dependencias de producción
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -14,13 +14,13 @@ COPY backend ./backend
 
 RUN npm run build && npm prune --omit=dev
 
-# Etapa 2: Imagen final mínima con usuario no root
-FROM node:22-alpine AS runner
+# Etapa 2: Imagen final mínima con usuario no root (glibc compatible con argon2)
+FROM node:22-slim AS runner
 
 ENV NODE_ENV=production
 WORKDIR /app
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
 
 COPY --from=builder --chown=appuser:appgroup /app/package.json /app/package-lock.json ./
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules

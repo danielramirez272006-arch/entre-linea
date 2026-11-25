@@ -39,7 +39,14 @@ services:
         value: v1
       - key: ENCRYPTION_KEYS_JSON
         sync: false
+      # Se activa en Environment después de guardar la clave privada de Brevo.
       - key: MAIL_DRIVER
-        value: local
+        sync: false
+      - key: MAIL_API_URL
+        value: https://api.brevo.com/v3/smtp/email
+      - key: MAIL_FROM
+        value: entrelineas.notas2727@gmail.com
+      - key: MAIL_API_KEY
+        sync: false
       - key: LOG_LEVEL
         value: info

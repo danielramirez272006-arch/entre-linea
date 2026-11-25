@@ -4,9 +4,11 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const BACKEND_ROOT = path.resolve(__dirname, '../..');
 export const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 
-// Carga .env desde la raíz del monorepo sin sobrescribir variables ya definidas en el entorno.
+// Carga backend/.env primero y, como respaldo, .env en la raíz sin sobrescribir variables existentes.
+dotenv.config({ path: path.join(BACKEND_ROOT, '.env') });
 dotenv.config({ path: path.join(PROJECT_ROOT, '.env') });
 
 const KEY_HEX_REGEX = /^[0-9a-fA-F]{64}$/;

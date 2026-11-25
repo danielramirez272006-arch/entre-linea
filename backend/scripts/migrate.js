@@ -49,7 +49,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       return pool.end();
     })
     .catch(async (err) => {
-      console.error('Error al ejecutar migraciones:', err.message);
+      const detail =
+        err.message ||
+        (Array.isArray(err.errors) ? err.errors.map((e) => e.message || e.code).join('; ') : err.code || String(err));
+      console.error('Error al ejecutar migraciones:', detail);
       await pool.end().catch(() => {});
       process.exit(1);
     });

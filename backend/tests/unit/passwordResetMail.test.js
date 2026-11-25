@@ -5,6 +5,7 @@ import request from 'supertest';
 
 import { createApp } from '../../src/app.js';
 import { createMailer } from '../../src/mail/mailer.js';
+import { createAuthService } from '../../src/services/authService.js';
 import { createInMemoryTestStore } from './mockStore.js';
 
 function createCapturingLogger() {
@@ -261,4 +262,18 @@ describe('Recuperación de contraseña y resiliencia del proveedor de correo', (
     });
     assert.equal(resetOk.status, 200);
   });
+});
+
+
+it('en producción sin correo real rechaza recuperación antes de consultar cuentas o generar tokens', async () => {
+  let consulted = false;
+  const service = createAuthService({
+    config: { isProduction: true, mailDriver: 'local' },
+    usersRepo: { async findByEmail() { consulted = true; throw new Error('No debe consultarse la cuenta'); } },
+  });
+  await assert.rejects(
+    service.requestPasswordReset({ email: 'persona@ejemplo.test' }, {}),
+    (err) => err.statusCode === 503 && err.code === 'RECOVERY_UNAVAILABLE'
+  );
+  assert.equal(consulted, false);
 });

@@ -280,6 +280,12 @@ export function createAuthService({
     },
 
     async requestPasswordReset({ email }, { ipAddress, requestPath }) {
+      // No prometer entrega de correos cuando producción solo tiene buzón local.
+      if (config.isProduction && config.mailDriver === 'local') {
+        throw new AppError(503, 'La recuperación por correo todavía no está disponible. Intenta más tarde.', {
+          code: 'RECOVERY_UNAVAILABLE',
+        });
+      }
       const genericResponse = {
         message: 'Si el correo está registrado, enviaremos instrucciones para restablecer tu contraseña.',
       };

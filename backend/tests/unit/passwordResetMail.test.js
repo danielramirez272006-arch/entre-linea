@@ -277,3 +277,24 @@ it('en producción sin correo real rechaza recuperación antes de consultar cuen
   );
   assert.equal(consulted, false);
 });
+
+
+it('envía a Brevo con api-key y su contrato de correo transaccional, sin llamadas reales', async () => {
+  let sent;
+  const mailer = createMailer({
+    mailDriver: 'https-api', mailApiUrl: 'https://api.brevo.com/v3/smtp/email',
+    mailApiKey: 'dummy-key-for-test-only', mailFrom: 'sender@example.test',
+  }, null, { fetchImpl: async (url, options) => {
+    sent = { url, options, body: JSON.parse(options.body) };
+    return { ok: true, status: 201 };
+  }});
+  await mailer.sendPasswordResetEmail({ to: 'recipient@example.test', name: 'Prueba', resetUrl: 'https://example.test/restablecer?token=dummy', expiresMinutes: 15 });
+  assert.equal(sent.url, 'https://api.brevo.com/v3/smtp/email');
+  assert.equal(sent.options.headers['api-key'], 'dummy-key-for-test-only');
+  assert.equal(sent.options.headers.Authorization, undefined);
+  assert.equal(sent.options.redirect, 'error');
+  assert.deepEqual(sent.body.sender, { name: 'Entre Líneas', email: 'sender@example.test' });
+  assert.deepEqual(sent.body.to, [{ email: 'recipient@example.test' }]);
+  assert.match(sent.body.textContent, /token=dummy/);
+  assert.equal(sent.body.from, undefined);
+});

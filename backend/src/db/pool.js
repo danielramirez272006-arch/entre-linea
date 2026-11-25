@@ -7,8 +7,13 @@ export function createDbPool(config, logger) {
     throw new Error('DATABASE_URL es obligatorio para conectar con PostgreSQL.');
   }
 
+  const sslConfig = config.dbSsl
+    ? { rejectUnauthorized: config.dbSslRejectUnauthorized !== false }
+    : undefined;
+
   const pool = new Pool({
     connectionString: config.databaseUrl,
+    ssl: sslConfig,
     max: 15,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,

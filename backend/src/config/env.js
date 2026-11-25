@@ -70,6 +70,8 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1).optional(),
   TEST_DATABASE_URL: z.string().min(1).optional(),
+  DB_SSL: z.enum(['true', 'false']).optional().default('false'),
+  DB_SSL_REJECT_UNAUTHORIZED: z.enum(['true', 'false']).optional().default('true'),
   DB_QUERY_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(5000),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(5000),
 
@@ -135,6 +137,8 @@ export function loadConfig(sourceEnv = process.env) {
 
     databaseUrl: data.DATABASE_URL,
     testDatabaseUrl: data.TEST_DATABASE_URL,
+    dbSsl: data.DB_SSL === 'true',
+    dbSslRejectUnauthorized: data.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
     dbQueryTimeoutMs: data.DB_QUERY_TIMEOUT_MS,
     dbStatementTimeoutMs: data.DB_STATEMENT_TIMEOUT_MS,
 

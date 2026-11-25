@@ -60,6 +60,7 @@ describe('Flujos de API y controles de seguridad (con repositorio simulado de pr
     assert.deepEqual(res.body, { status: 'ok' });
     assert.equal(res.headers['x-powered-by'], undefined);
     assert.match(res.headers['content-security-policy'], /default-src 'self'/);
+    assert.match(res.headers['permissions-policy'], /camera=\(\)/);
   });
 
   it('rechaza asignación de rol en registro, cifra entradas y bloquea IDOR entre dos usuarios', async () => {

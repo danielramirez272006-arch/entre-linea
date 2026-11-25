@@ -142,9 +142,21 @@ export function createApp({
         },
       },
       crossOriginEmbedderPolicy: false,
+      hsts: config.isProduction
+        ? { maxAge: 31536000, includeSubDomains: true, preload: false }
+        : false,
       referrerPolicy: { policy: 'same-origin' },
     })
   );
+
+  // Cabecera Permissions-Policy restrictiva (apunta a A/A+ en securityheaders.com).
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
+    );
+    next();
+  });
 
   // CORS restringido únicamente a orígenes autorizados.
   app.use(

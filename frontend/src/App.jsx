@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { createBrowserRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
+import { UnsavedChangesProvider } from './context/UnsavedChangesContext.jsx';
 import { AppShell } from './components/layout/AppShell.jsx';
 import { ProtectedRoute } from './routes/ProtectedRoute.jsx';
 
@@ -13,48 +14,58 @@ import { Profile } from './pages/Profile.jsx';
 import { Admin } from './pages/Admin.jsx';
 import { NotFound } from './pages/NotFound.jsx';
 
-export function App() {
+function RootLayout() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <AuthProvider>
+      <UnsavedChangesProvider>
         <AppShell>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/iniciar-sesion" element={<Login />} />
-            <Route path="/registro" element={<Register />} />
-            <Route path="/recuperar" element={<ForgotPassword />} />
-            <Route path="/restablecer" element={<ResetPassword />} />
-
-            <Route
-              path="/diario"
-              element={
-                <ProtectedRoute>
-                  <Diary />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/perfil"
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute requireAdmin>
-                  <Admin />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Outlet />
         </AppShell>
-      </AuthProvider>
-    </BrowserRouter>
+      </UnsavedChangesProvider>
+    </AuthProvider>
   );
+}
+
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: [
+      { path: '/', element: <Home /> },
+      { path: '/iniciar-sesion', element: <Login /> },
+      { path: '/registro', element: <Register /> },
+      { path: '/recuperar', element: <ForgotPassword /> },
+      { path: '/restablecer', element: <ResetPassword /> },
+      {
+        path: '/diario',
+        element: (
+          <ProtectedRoute>
+            <Diary />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: '/perfil',
+        element: (
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: '/admin',
+        element: (
+          <ProtectedRoute requireAdmin>
+            <Admin />
+          </ProtectedRoute>
+        ),
+      },
+      { path: '*', element: <NotFound /> },
+    ],
+  },
+]);
+
+export function App() {
+  return <RouterProvider router={router} />;
 }
 
 export default App;

@@ -1,15 +1,22 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
+import { useUnsavedChangesContext } from '../context/UnsavedChangesContext.jsx';
 
 export function useUnsavedChanges(hasUnsavedChanges) {
+  const { setDirty, confirmIfDirty } = useUnsavedChangesContext();
+
   useEffect(() => {
-    if (!hasUnsavedChanges) return undefined;
+    setDirty(hasUnsavedChanges);
+  }, [hasUnsavedChanges, setDirty]);
 
-    function handleBeforeUnload(event) {
-      event.preventDefault();
-      event.returnValue = '';
-    }
+  useEffect(() => {
+    return () => {
+      setDirty(false);
+    };
+  }, [setDirty]);
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  const markClean = useCallback(() => {
+    setDirty(false);
+  }, [setDirty]);
+
+  return { confirmIfDirty, markClean };
 }

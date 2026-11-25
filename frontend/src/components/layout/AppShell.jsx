@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useUnsavedChangesContext } from '../../context/UnsavedChangesContext.jsx';
 import { Button } from '../ui/Button.jsx';
 import { StatusBanner } from '../ui/StatusBanner.jsx';
 
 export function AppShell({ children }) {
   const { user, logout, sessionExpired, dismissSessionExpired } = useAuth();
+  const { confirmIfDirty } = useUnsavedChangesContext();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
 
-  async function handleLogout() {
+  async function executeLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
     try {
@@ -20,6 +22,13 @@ export function AppShell({ children }) {
     } finally {
       setLoggingOut(false);
     }
+  }
+
+  function handleLogout() {
+    if (loggingOut) return;
+    confirmIfDirty(() => {
+      executeLogout();
+    });
   }
 
   function navClass({ isActive }) {

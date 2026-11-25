@@ -24,7 +24,6 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [conflictEntry, setConflictEntry] = useState(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   const titleId = useId();
   const dateId = useId();
@@ -39,7 +38,7 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
     form.mood !== savedSnapshot.mood ||
     form.content !== savedSnapshot.content;
 
-  useUnsavedChanges(isDirty);
+  const { confirmIfDirty, markClean } = useUnsavedChanges(isDirty);
 
   function handleFieldChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -49,11 +48,7 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
   }
 
   function requestClose() {
-    if (isDirty) {
-      setConfirmDiscardOpen(true);
-    } else {
-      onClose();
-    }
+    confirmIfDirty(() => onClose());
   }
 
   async function handleSubmit(event) {
@@ -78,6 +73,7 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
       }
 
       const saved = await onSave(payload, entry?.id || null);
+      markClean();
       const nextSnapshot = {
         title: saved.title,
         entryDate: saved.entryDate,
@@ -110,6 +106,7 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
     setErrorMsg('');
     try {
       await onDelete(entry.id);
+      markClean();
       setConfirmDeleteOpen(false);
     } catch (err) {
       setConfirmDeleteOpen(false);
@@ -337,22 +334,6 @@ export function DiaryEditor({ entry, onSave, onDelete, onClose }) {
           </Button>
           <Button variant="danger" onClick={handleConfirmDelete} loading={deleting}>
             Sí, eliminar
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={confirmDiscardOpen}
-        title="Cambios sin guardar"
-        onClose={() => setConfirmDiscardOpen(false)}
-      >
-        <p>Tienes cambios sin guardar en esta entrada. Si sales ahora, se perderán.</p>
-        <div className="dialog-actions">
-          <Button variant="secondary" onClick={() => setConfirmDiscardOpen(false)}>
-            Seguir editando
-          </Button>
-          <Button variant="danger" onClick={onClose}>
-            Descartar cambios
           </Button>
         </div>
       </Dialog>

@@ -44,7 +44,7 @@ export function createErrorHandler(logger) {
           code: err?.code,
         },
         method: req.method,
-        path: req.originalUrl,
+        path: String(req.originalUrl || '').split('?')[0],
       },
       'Error interno no controlado'
     );

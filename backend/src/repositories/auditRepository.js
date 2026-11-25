@@ -24,7 +24,7 @@ export function createAuditRepository(pool) {
           actorUserId,
           targetUserId,
           ipAddress,
-          requestPath ? requestPath.slice(0, 200) : null,
+          requestPath ? String(requestPath).split('?')[0].slice(0, 200) : null,
           JSON.stringify(details),
         ]
       );

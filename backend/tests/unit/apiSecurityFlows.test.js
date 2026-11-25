@@ -137,10 +137,13 @@ describe('Flujos de API y controles de seguridad (con repositorio simulado de pr
       404
     );
 
-    // Usuario normal no puede acceder al panel admin
-    const adminAttempt = await agentB.get('/api/admin/users');
+    // Usuario normal no puede acceder al panel admin y no se filtran query strings en bitácora
+    const adminAttempt = await agentB.get('/api/admin/users?search=texto-confidencial-privado');
     assert.equal(adminAttempt.status, 403);
-    assert.ok(store.raw.auditLogs.some((l) => l.event_type === 'access_denied'));
+    const deniedLog = store.raw.auditLogs.find((l) => l.event_type === 'access_denied');
+    assert.ok(deniedLog);
+    assert.equal(deniedLog.request_path, '/api/admin/users');
+    assert.equal(deniedLog.request_path.includes('confidencial'), false);
   });
 
   it('protege contra CSRF, orígenes no permitidos y SQLi en identificadores', async () => {

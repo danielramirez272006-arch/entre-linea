@@ -1,3 +1,5 @@
+const ROLE_MUTATION_ADVISORY_LOCK_KEY = 8842101;
+
 export function createUsersRepository(pool) {
   function exec(client) {
     return client || pool;
@@ -6,7 +8,7 @@ export function createUsersRepository(pool) {
   return Object.freeze({
     async findByEmail(email, client) {
       const { rows } = await exec(client).query(
-        `SELECT id, name, email, password_hash, role,
+        `SELECT id, name, email, password_hash, role, auth_version,
                 phone_ciphertext, phone_iv, phone_tag, phone_key_version,
                 sensitive_note_ciphertext, sensitive_note_iv, sensitive_note_tag, sensitive_note_key_version,
                 failed_login_attempts, locked_until, created_at, updated_at
@@ -19,7 +21,7 @@ export function createUsersRepository(pool) {
 
     async findById(id, client) {
       const { rows } = await exec(client).query(
-        `SELECT id, name, email, password_hash, role,
+        `SELECT id, name, email, password_hash, role, auth_version,
                 phone_ciphertext, phone_iv, phone_tag, phone_key_version,
                 sensitive_note_ciphertext, sensitive_note_iv, sensitive_note_tag, sensitive_note_key_version,
                 failed_login_attempts, locked_until, created_at, updated_at
@@ -28,6 +30,36 @@ export function createUsersRepository(pool) {
         [id]
       );
       return rows[0] || null;
+    },
+
+    async findByIdForUpdate(id, client) {
+      const { rows } = await exec(client).query(
+        `SELECT id, name, email, password_hash, role, auth_version,
+                failed_login_attempts, locked_until, created_at, updated_at
+         FROM users
+         WHERE id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+
+    async lockUsersForUpdate(ids, client) {
+      const uniqueSorted = [...new Set(ids)].sort();
+      const { rows } = await exec(client).query(
+        `SELECT id, name, email, password_hash, role, auth_version,
+                failed_login_attempts, locked_until, created_at, updated_at
+         FROM users
+         WHERE id = ANY($1::uuid[])
+         ORDER BY id ASC
+         FOR UPDATE`,
+        [uniqueSorted]
+      );
+      return rows;
+    },
+
+    async acquireRoleMutationLock(client) {
+      await exec(client).query(`SELECT pg_advisory_xact_lock($1)`, [ROLE_MUTATION_ADVISORY_LOCK_KEY]);
     },
 
     async lockRowForUpdate(id, client) {
@@ -40,18 +72,15 @@ export function createUsersRepository(pool) {
 
     async create({ id, name, email, passwordHash, role = 'user' }, client) {
       const { rows } = await exec(client).query(
-        `INSERT INTO users (id, name, email, password_hash, role)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, name, email, role, created_at, updated_at`,
+        `INSERT INTO users (id, name, email, password_hash, role, auth_version)
+         VALUES ($1, $2, $3, $4, $5, 1)
+         RETURNING id, name, email, role, auth_version, created_at, updated_at`,
         [id, name, email, passwordHash, role]
       );
       return rows[0];
     },
 
-    async updateProfile(
-      { id, name, phoneCrypto, sensitiveNoteCrypto },
-      client
-    ) {
+    async updateProfile({ id, name, phoneCrypto, sensitiveNoteCrypto }, client) {
       const { rows } = await exec(client).query(
         `UPDATE users
          SET name = $2,
@@ -89,25 +118,41 @@ export function createUsersRepository(pool) {
       const { rows } = await exec(client).query(
         `UPDATE users
          SET password_hash = $2,
+             auth_version = auth_version + 1,
              failed_login_attempts = 0,
              locked_until = NULL,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id`,
+         RETURNING id, auth_version`,
         [id, passwordHash]
       );
       return rows[0] || null;
     },
 
-    async recordFailedLogin(id, { attempts, lockedUntil }, client) {
-      await exec(client).query(
+    /**
+     * Incrementa atómicamente los intentos fallidos y calcula el bloqueo progresivo
+     * sobre el valor recién incrementado en PostgreSQL.
+     */
+    async incrementFailedLogin(id, { maxAttempts, lockoutBaseSeconds }, client) {
+      const { rows } = await exec(client).query(
         `UPDATE users
-         SET failed_login_attempts = $2,
-             locked_until = $3,
+         SET failed_login_attempts = failed_login_attempts + 1,
+             locked_until = CASE
+               WHEN failed_login_attempts + 1 >= $2 THEN
+                 GREATEST(
+                   COALESCE(locked_until, NOW()),
+                   NOW() + make_interval(
+                     secs => LEAST($3 * POWER(2, LEAST((failed_login_attempts + 1) - $2, 6)), 3600)
+                   )
+                 )
+               ELSE locked_until
+             END,
              updated_at = NOW()
-         WHERE id = $1`,
-        [id, attempts, lockedUntil]
+         WHERE id = $1
+         RETURNING failed_login_attempts, locked_until`,
+        [id, maxAttempts, lockoutBaseSeconds]
       );
+      return rows[0] || null;
     },
 
     async resetLoginFailures(id, client) {
@@ -141,9 +186,10 @@ export function createUsersRepository(pool) {
       const { rows } = await exec(client).query(
         `UPDATE users
          SET role = $2,
+             auth_version = auth_version + 1,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, name, email, role, created_at, updated_at`,
+         RETURNING id, name, email, role, auth_version, created_at, updated_at`,
         [id, role]
       );
       return rows[0] || null;

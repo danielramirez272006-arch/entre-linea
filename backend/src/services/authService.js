@@ -11,6 +11,7 @@ export function createAuthService({
   passwordResetRepo,
   auditRepo,
   mailer,
+  hooks = {},
 }) {
   async function issueSession({ userId, ipAddress, userAgent }, client) {
     const rawSessionToken = generateOpaqueToken(32);
@@ -129,72 +130,132 @@ export function createAuthService({
         });
       }
 
-      const validPassword = await verifyPassword(user.password_hash, password);
+      // Captura la versión de autenticación y hash verificados antes de abrir la transacción.
+      const verifiedAuthVersion = user.auth_version;
+      const verifiedPasswordHash = user.password_hash;
+
+      const validPassword = await verifyPassword(verifiedPasswordHash, password);
       if (!validPassword) {
-        const attempts = (user.failed_login_attempts || 0) + 1;
-        let lockedUntil = null;
-        let retryAfterSeconds;
+        // Actualización atómica en transacción (orden de bloqueo: users -> audit).
+        const failureState = await withTx(async (client) => {
+          const updated = await usersRepo.incrementFailedLogin(
+            user.id,
+            {
+              maxAttempts: config.loginMaxAttempts,
+              lockoutBaseSeconds: config.loginLockoutBaseSeconds,
+            },
+            client
+          );
 
-        if (attempts >= config.loginMaxAttempts) {
-          const exponent = Math.min(attempts - config.loginMaxAttempts, 6);
-          retryAfterSeconds = Math.min(config.loginLockoutBaseSeconds * 2 ** exponent, 3600);
-          lockedUntil = new Date(now + retryAfterSeconds * 1000);
-        }
+          const attempts = updated.failed_login_attempts;
+          const lockedUntil = updated.locked_until ? new Date(updated.locked_until) : null;
+          const isLocked = Boolean(lockedUntil && lockedUntil.getTime() > Date.now());
+          const retryAfterSeconds = isLocked
+            ? Math.max(1, Math.ceil((lockedUntil.getTime() - Date.now()) / 1000))
+            : undefined;
 
-        await usersRepo.recordFailedLogin(user.id, { attempts, lockedUntil });
-        await auditRepo.insert({
-          eventType: 'login_failed',
-          severity: 'warn',
-          targetUserId: user.id,
-          ipAddress,
-          requestPath,
-          details: { reason: 'invalid_credentials', attempts, locked: Boolean(lockedUntil) },
+          await auditRepo.insert(
+            {
+              eventType: 'login_failed',
+              severity: 'warn',
+              targetUserId: user.id,
+              ipAddress,
+              requestPath,
+              details: { reason: 'invalid_credentials', attempts, locked: isLocked },
+            },
+            client
+          );
+
+          if (attempts >= config.alertFailedLoginsThreshold) {
+            await auditRepo.insert(
+              {
+                eventType: 'brute_force_alert',
+                severity: 'alert',
+                targetUserId: user.id,
+                ipAddress,
+                requestPath,
+                details: { consecutiveFailures: attempts, scope: 'account' },
+              },
+              client
+            );
+          }
+
+          return { isLocked, retryAfterSeconds };
         });
 
-        if (attempts >= config.alertFailedLoginsThreshold) {
-          await auditRepo.insert({
-            eventType: 'brute_force_alert',
-            severity: 'alert',
-            targetUserId: user.id,
-            ipAddress,
-            requestPath,
-            details: { consecutiveFailures: attempts, scope: 'account' },
-          });
-        }
-
-        if (lockedUntil) {
+        if (failureState.isLocked) {
           throw new AppError(429, 'Demasiados intentos fallidos. Espera antes de volver a intentarlo.', {
             code: 'ACCOUNT_LOCKED',
-            retryAfterSeconds,
+            retryAfterSeconds: failureState.retryAfterSeconds,
           });
         }
 
         throw new AppError(401, 'Credenciales inválidas.', { code: 'INVALID_CREDENTIALS' });
       }
 
+      if (typeof hooks.beforeLoginSessionTx === 'function') {
+        await hooks.beforeLoginSessionTx({ userId: user.id, verifiedAuthVersion });
+      }
+
+      // Orden coherente de bloqueos: siempre users FOR UPDATE antes de sessions/audit.
       return withTx(async (client) => {
-        // Regenera sesión eliminando cualquier sesión previa en esa cookie.
+        const lockedUser = await usersRepo.findByIdForUpdate(user.id, client);
+        if (
+          !lockedUser ||
+          lockedUser.auth_version !== verifiedAuthVersion ||
+          lockedUser.password_hash !== verifiedPasswordHash
+        ) {
+          await auditRepo.insert(
+            {
+              eventType: 'login_failed',
+              severity: 'warn',
+              targetUserId: user.id,
+              ipAddress,
+              requestPath,
+              details: { reason: 'credentials_changed_concurrently' },
+            },
+            client
+          );
+          throw new AppError(401, 'Credenciales inválidas.', { code: 'INVALID_CREDENTIALS' });
+        }
+
+        if (lockedUser.locked_until && new Date(lockedUser.locked_until).getTime() > Date.now()) {
+          const retryAfterSeconds = Math.max(
+            1,
+            Math.ceil((new Date(lockedUser.locked_until).getTime() - Date.now()) / 1000)
+          );
+          throw new AppError(429, 'Demasiados intentos fallidos. Espera antes de volver a intentarlo.', {
+            code: 'ACCOUNT_LOCKED',
+            retryAfterSeconds,
+          });
+        }
+
         if (existingSessionIdHash) {
           await sessionsRepo.deleteByIdHash(existingSessionIdHash, client);
         }
-        await usersRepo.resetLoginFailures(user.id, client);
+        await usersRepo.resetLoginFailures(lockedUser.id, client);
 
-        const session = await issueSession({ userId: user.id, ipAddress, userAgent }, client);
+        const session = await issueSession({ userId: lockedUser.id, ipAddress, userAgent }, client);
         await auditRepo.insert(
           {
             eventType: 'login_success',
             severity: 'info',
-            actorUserId: user.id,
-            targetUserId: user.id,
+            actorUserId: lockedUser.id,
+            targetUserId: lockedUser.id,
             ipAddress,
             requestPath,
-            details: { role: user.role },
+            details: { role: lockedUser.role },
           },
           client
         );
 
         return {
-          user: { id: user.id, name: user.name, email: user.email, role: user.role },
+          user: {
+            id: lockedUser.id,
+            name: lockedUser.name,
+            email: lockedUser.email,
+            role: lockedUser.role,
+          },
           sessionToken: session.rawSessionToken,
           csrfToken: session.csrfToken,
         };
@@ -231,6 +292,7 @@ export function createAuthService({
       const expiresAt = new Date(Date.now() + config.passwordResetTtlMs);
 
       await withTx(async (client) => {
+        await usersRepo.findByIdForUpdate(user.id, client);
         await passwordResetRepo.invalidateAllForUser(user.id, client);
         await passwordResetRepo.create(
           { id: randomUUID(), userId: user.id, tokenHash, expiresAt },
@@ -268,9 +330,19 @@ export function createAuthService({
       const tokenHash = sha256Hex(token);
       const newHash = await hashPassword(newPassword);
 
+      // Identifica el propietario primero para bloquear siempre users FOR UPDATE antes de tokens/sesiones.
+      const candidateUserId = await passwordResetRepo.findActiveUserIdByHash(tokenHash);
+      if (!candidateUserId) {
+        throw new AppError(400, 'El enlace de recuperación es inválido, ya fue utilizado o ha caducado.', {
+          code: 'INVALID_RESET_TOKEN',
+        });
+      }
+
       await withTx(async (client) => {
+        await usersRepo.findByIdForUpdate(candidateUserId, client);
+
         const consumed = await passwordResetRepo.consumeAtomic(tokenHash, client);
-        if (!consumed) {
+        if (!consumed || consumed.user_id !== candidateUserId) {
           throw new AppError(400, 'El enlace de recuperación es inválido, ya fue utilizado o ha caducado.', {
             code: 'INVALID_RESET_TOKEN',
           });
@@ -302,7 +374,10 @@ export function createAuthService({
         throw new AppError(404, 'Usuario no encontrado.', { code: 'USER_NOT_FOUND' });
       }
 
-      const validCurrent = await verifyPassword(user.password_hash, currentPassword);
+      const verifiedAuthVersion = user.auth_version;
+      const verifiedPasswordHash = user.password_hash;
+
+      const validCurrent = await verifyPassword(verifiedPasswordHash, currentPassword);
       if (!validCurrent) {
         throw new AppError(401, 'La contraseña actual no es correcta.', { code: 'INVALID_CURRENT_PASSWORD' });
       }
@@ -310,18 +385,31 @@ export function createAuthService({
       const newHash = await hashPassword(newPassword);
 
       return withTx(async (client) => {
-        await usersRepo.updatePassword(user.id, newHash, client);
+        const lockedUser = await usersRepo.findByIdForUpdate(user.id, client);
+        if (
+          !lockedUser ||
+          lockedUser.auth_version !== verifiedAuthVersion ||
+          lockedUser.password_hash !== verifiedPasswordHash
+        ) {
+          throw new AppError(
+            401,
+            'Tus credenciales cambiaron en otra operación. Inicia sesión nuevamente antes de cambiar la contraseña.',
+            { code: 'CREDENTIALS_CHANGED' }
+          );
+        }
+
+        await usersRepo.updatePassword(lockedUser.id, newHash, client);
         // Invalida todas las sesiones y tokens anteriores y emite una sesión nueva para el usuario actual.
-        await sessionsRepo.deleteAllForUser(user.id, client);
-        await passwordResetRepo.invalidateAllForUser(user.id, client);
-        const session = await issueSession({ userId: user.id, ipAddress, userAgent }, client);
+        await sessionsRepo.deleteAllForUser(lockedUser.id, client);
+        await passwordResetRepo.invalidateAllForUser(lockedUser.id, client);
+        const session = await issueSession({ userId: lockedUser.id, ipAddress, userAgent }, client);
 
         await auditRepo.insert(
           {
             eventType: 'password_changed',
             severity: 'info',
-            actorUserId: user.id,
-            targetUserId: user.id,
+            actorUserId: lockedUser.id,
+            targetUserId: lockedUser.id,
             ipAddress,
             requestPath,
           },

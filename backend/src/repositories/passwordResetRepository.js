@@ -21,6 +21,18 @@ export function createPasswordResetRepository(pool) {
       );
     },
 
+    async findActiveUserIdByHash(tokenHash, client) {
+      const { rows } = await exec(client).query(
+        `SELECT user_id
+         FROM password_reset_tokens
+         WHERE token_hash = $1
+           AND consumed_at IS NULL
+           AND expires_at > NOW()`,
+        [tokenHash]
+      );
+      return rows[0]?.user_id || null;
+    },
+
     async consumeAtomic(tokenHash, client) {
       const { rows } = await exec(client).query(
         `UPDATE password_reset_tokens

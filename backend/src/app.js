@@ -37,7 +37,15 @@ import { createDiaryRoutes } from './routes/diaryRoutes.js';
 import { createProfileRoutes } from './routes/profileRoutes.js';
 import { createAdminRoutes } from './routes/adminRoutes.js';
 
-export function createApp({ config, logger, pool, repositories = null, withTxOverride = null, mailerOverride = null }) {
+export function createApp({
+  config,
+  logger,
+  pool,
+  repositories = null,
+  withTxOverride = null,
+  mailerOverride = null,
+  serviceHooks = {},
+}) {
   const app = express();
   app.disable('x-powered-by');
   if (config.trustProxy > 0) {
@@ -68,6 +76,7 @@ export function createApp({ config, logger, pool, repositories = null, withTxOve
     passwordResetRepo: repos.passwordResetRepo,
     auditRepo: repos.auditRepo,
     mailer,
+    hooks: serviceHooks.auth || {},
   });
   const diaryService = createDiaryService({
     withTx,
@@ -82,7 +91,9 @@ export function createApp({ config, logger, pool, repositories = null, withTxOve
   const adminService = createAdminService({
     withTx,
     usersRepo: repos.usersRepo,
+    sessionsRepo: repos.sessionsRepo,
     auditRepo: repos.auditRepo,
+    hooks: serviceHooks.admin || {},
   });
 
   const sessionMw = createSessionMiddleware({

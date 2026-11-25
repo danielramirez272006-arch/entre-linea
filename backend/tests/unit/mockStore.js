@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 /**
  * TEST-ONLY MOCK REPOSITORY (BASE SIMULADA EXCLUSIVAMENTE PARA PRUEBAS UNITARIAS)
  * No se utiliza en producción ni en desarrollo del servidor; la persistencia real
- * siempre usa PostgreSQL (server/src/repositories/*.js).
+ * siempre usa PostgreSQL (backend/src/repositories/*.js).
  */
 export function createInMemoryTestStore() {
   const users = new Map();
@@ -13,7 +13,7 @@ export function createInMemoryTestStore() {
   const auditLogs = [];
   const rateLimits = new Map();
 
-  // Simula serialización transaccional por usuario (equivalente a SELECT ... FOR UPDATE).
+  // Simula serialización transaccional (equivalente a SELECT ... FOR UPDATE / advisory lock).
   let txChain = Promise.resolve();
   function withTx(workFn) {
     const next = txChain.then(() => workFn({ __mockTx: true }));
@@ -32,6 +32,17 @@ export function createInMemoryTestStore() {
       const u = users.get(id);
       return u ? { ...u } : null;
     },
+    async findByIdForUpdate(id) {
+      const u = users.get(id);
+      return u ? { ...u } : null;
+    },
+    async lockUsersForUpdate(ids) {
+      const uniqueSorted = [...new Set(ids)].sort();
+      return uniqueSorted.map((id) => users.get(id)).filter(Boolean).map((u) => ({ ...u }));
+    },
+    async acquireRoleMutationLock() {
+      // Ya serializado por txChain en el repositorio simulado.
+    },
     async lockRowForUpdate(id) {
       return users.has(id) ? { id } : null;
     },
@@ -43,6 +54,7 @@ export function createInMemoryTestStore() {
         email,
         password_hash: passwordHash,
         role,
+        auth_version: 1,
         phone_ciphertext: null,
         phone_iv: null,
         phone_tag: null,
@@ -78,17 +90,25 @@ export function createInMemoryTestStore() {
       const u = users.get(id);
       if (!u) return null;
       u.password_hash = passwordHash;
+      u.auth_version += 1;
       u.failed_login_attempts = 0;
       u.locked_until = null;
       u.updated_at = new Date();
-      return { id: u.id };
+      return { id: u.id, auth_version: u.auth_version };
     },
-    async recordFailedLogin(id, { attempts, lockedUntil }) {
+    async incrementFailedLogin(id, { maxAttempts, lockoutBaseSeconds }) {
       const u = users.get(id);
-      if (!u) return;
-      u.failed_login_attempts = attempts;
-      u.locked_until = lockedUntil;
+      if (!u) return null;
+      u.failed_login_attempts += 1;
+      if (u.failed_login_attempts >= maxAttempts) {
+        const exponent = Math.min(u.failed_login_attempts - maxAttempts, 6);
+        const seconds = Math.min(lockoutBaseSeconds * 2 ** exponent, 3600);
+        const candidate = Date.now() + seconds * 1000;
+        const current = u.locked_until ? new Date(u.locked_until).getTime() : 0;
+        u.locked_until = new Date(Math.max(current, candidate));
+      }
       u.updated_at = new Date();
+      return { failed_login_attempts: u.failed_login_attempts, locked_until: u.locked_until };
     },
     async resetLoginFailures(id) {
       const u = users.get(id);
@@ -108,8 +128,17 @@ export function createInMemoryTestStore() {
       const u = users.get(id);
       if (!u) return null;
       u.role = role;
+      u.auth_version += 1;
       u.updated_at = new Date();
-      return { id: u.id, name: u.name, email: u.email, role: u.role, created_at: u.created_at, updated_at: u.updated_at };
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        auth_version: u.auth_version,
+        created_at: u.created_at,
+        updated_at: u.updated_at,
+      };
     },
   };
 
@@ -235,6 +264,13 @@ export function createInMemoryTestStore() {
         if (t.user_id === userId && !t.consumed_at) t.consumed_at = new Date();
       }
     },
+    async findActiveUserIdByHash(tokenHash) {
+      const t = resetTokens.get(tokenHash);
+      if (!t || t.consumed_at || new Date(t.expires_at).getTime() <= Date.now()) {
+        return null;
+      }
+      return t.user_id;
+    },
     async consumeAtomic(tokenHash) {
       const t = resetTokens.get(tokenHash);
       if (!t || t.consumed_at || new Date(t.expires_at).getTime() <= Date.now()) {
@@ -254,7 +290,7 @@ export function createInMemoryTestStore() {
         actor_user_id: actorUserId,
         target_user_id: targetUserId,
         ip_address: ipAddress,
-        request_path: requestPath,
+        request_path: requestPath ? String(requestPath).split('?')[0].slice(0, 200) : null,
         details,
         created_at: new Date(),
       };

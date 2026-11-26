@@ -86,7 +86,7 @@ const envSchema = z.object({
   ENCRYPTION_KEYS_JSON: z.string().min(2),
 
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(60).default(15),
-  MAIL_DRIVER: z.enum(['local', 'https-api']).default('local'),
+  MAIL_DRIVER: z.enum(['local', 'https-api', 'brevo']).default('local'),
   DEV_MAIL_DIR: z.string().min(1).default('backend/.dev-mail'),
   MAIL_API_URL: z.string().optional().default(''),
   MAIL_API_KEY: z.string().optional().default(''),
@@ -120,6 +120,15 @@ export function loadConfig(sourceEnv = process.env) {
     }
     if (!data.MAIL_API_KEY) {
       throw new Error('MAIL_API_KEY es obligatorio cuando MAIL_DRIVER=https-api.');
+    }
+  }
+
+  if (data.MAIL_DRIVER === 'brevo') {
+    if (!data.MAIL_API_KEY) {
+      throw new Error('MAIL_API_KEY es obligatorio cuando MAIL_DRIVER=brevo.');
+    }
+    if (data.MAIL_API_URL && !data.MAIL_API_URL.startsWith('https://')) {
+      throw new Error('MAIL_API_URL debe usar HTTPS cuando MAIL_DRIVER=brevo.');
     }
   }
 

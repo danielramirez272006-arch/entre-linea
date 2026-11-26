@@ -3,11 +3,12 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export class MailDeliveryError extends Error {
-  constructor(code, message, { status = undefined } = {}) {
+  constructor(code, message, { status = undefined, providerCode = undefined } = {}) {
     super(message);
     this.name = 'MailDeliveryError';
     this.code = code;
     this.status = status;
+    this.providerCode = providerCode;
   }
 }
 
@@ -51,45 +52,93 @@ export function createMailer(config, logger, { fetchImpl = fetch } = {}) {
       return { delivered: true, driver: 'local', file: filename, fullPath };
     }
 
-    if (config.mailDriver === 'https-api') {
-      const isBrevo = config.mailApiUrl === 'https://api.brevo.com/v3/smtp/email';
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (config.mailDriver === 'https-api' || config.mailDriver === 'brevo') {
+      const targetUrl = (
+        config.mailApiUrl || (config.mailDriver === 'brevo' ? 'https://api.brevo.com/v3/smtp/email' : '')
+      ).trim();
 
-      try {
-        const response = await fetchImpl(config.mailApiUrl, {
-          method: 'POST',
-          headers: {
+      const isBrevo =
+        config.mailDriver === 'brevo' ||
+        (() => {
+          try {
+            return new URL(targetUrl).hostname.toLowerCase().endsWith('brevo.com');
+          } catch {
+            return false;
+          }
+        })();
+
+      const headers = isBrevo
+        ? {
             'Content-Type': 'application/json',
-            ...(isBrevo ? { 'api-key': config.mailApiKey } : { Authorization: `Bearer ${config.mailApiKey}` }),
-          },
-          signal: controller.signal,
-          redirect: 'error',
-          body: JSON.stringify(isBrevo ? {
-            sender: { name: 'Entre Líneas', email: config.mailFrom },
+            Accept: 'application/json',
+            'api-key': config.mailApiKey,
+          }
+        : {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.mailApiKey}`,
+          };
+
+      const bodyPayload = isBrevo
+        ? {
+            sender: {
+              name: 'Entre Líneas',
+              email: config.mailFrom,
+            },
             to: [{ email: to }],
             subject,
             textContent: textBody,
-          } : {
+          }
+        : {
             from: config.mailFrom,
             to,
             subject,
             text: textBody,
-          }),
+          };
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetchImpl(targetUrl, {
+          method: 'POST',
+          headers,
+          signal: controller.signal,
+          redirect: 'error',
+          body: JSON.stringify(bodyPayload),
         });
 
         if (!response.ok) {
+          let providerCode;
+          try {
+            const errJson = typeof response.json === 'function' ? await response.json() : null;
+            if (errJson && typeof errJson.code === 'string') {
+              providerCode = errJson.code.slice(0, 64);
+            }
+          } catch {
+            // Ignora cuerpo no JSON; nunca registramos el cuerpo completo.
+          }
+
           logger?.error(
-            { mailDriver: 'https-api', status: response.status, reasonCode: 'MAIL_PROVIDER_ERROR' },
+            {
+              mailDriver: config.mailDriver,
+              provider: isBrevo ? 'brevo' : 'https-api',
+              status: response.status,
+              providerCode,
+              reasonCode: 'MAIL_PROVIDER_ERROR',
+            },
             'Fallo al enviar correo por API HTTPS'
           );
           throw new MailDeliveryError('MAIL_PROVIDER_ERROR', 'El proveedor de correo devolvió un error.', {
             status: response.status,
+            providerCode,
           });
         }
 
-        logger?.info({ mailDriver: 'https-api' }, 'Correo de recuperación enviado vía API HTTPS');
-        return { delivered: true, driver: 'https-api' };
+        logger?.info(
+          { mailDriver: config.mailDriver, provider: isBrevo ? 'brevo' : 'https-api' },
+          'Correo de recuperación enviado vía API HTTPS'
+        );
+        return { delivered: true, driver: isBrevo ? 'brevo' : 'https-api' };
       } catch (err) {
         if (err instanceof MailDeliveryError) {
           throw err;
@@ -97,7 +146,7 @@ export function createMailer(config, logger, { fetchImpl = fetch } = {}) {
         const isTimeout = err?.name === 'AbortError' || err?.name === 'TimeoutError' || controller.signal.aborted;
         const reasonCode = isTimeout ? 'MAIL_TIMEOUT' : 'MAIL_NETWORK_ERROR';
         logger?.error(
-          { mailDriver: 'https-api', reasonCode },
+          { mailDriver: config.mailDriver, provider: isBrevo ? 'brevo' : 'https-api', reasonCode },
           isTimeout ? 'Timeout al contactar proveedor HTTPS de correo' : 'Error de red al contactar proveedor HTTPS de correo'
         );
         throw new MailDeliveryError(

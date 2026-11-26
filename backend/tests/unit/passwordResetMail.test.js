@@ -262,6 +262,48 @@ describe('Recuperación de contraseña y resiliencia del proveedor de correo', (
     });
     assert.equal(resetOk.status, 200);
   });
+
+  it('envía el formato exacto de Brevo (cabecera api-key, sender, to[], textContent) cuando se usa api.brevo.com', async () => {
+    const logger = createCapturingLogger();
+    let capturedUrl = null;
+    let capturedHeaders = null;
+    let capturedBody = null;
+
+    const brevoMailer = createMailer(
+      {
+        mailDriver: 'https-api',
+        mailApiUrl: 'https://api.brevo.com/v3/smtp/email',
+        mailApiKey: 'xkeysib-TEST-BREVO-KEY',
+        mailFrom: 'verificado@ejemplo.com',
+        mailTimeoutMs: 1000,
+      },
+      logger,
+      {
+        fetchImpl: async (url, init) => {
+          capturedUrl = url;
+          capturedHeaders = init.headers;
+          capturedBody = JSON.parse(init.body);
+          return { ok: true, status: 201 };
+        },
+      }
+    );
+
+    const res = await brevoMailer.sendPasswordResetEmail({
+      to: 'destinatario@ejemplo.com',
+      name: 'Daniel',
+      resetUrl: 'https://entre-lineas-diario-seguro.onrender.com/restablecer?token=' + 'a'.repeat(64),
+      expiresMinutes: 15,
+    });
+
+    assert.equal(res.delivered, true);
+    assert.equal(res.driver, 'brevo');
+    assert.equal(capturedUrl, 'https://api.brevo.com/v3/smtp/email');
+    assert.equal(capturedHeaders['api-key'], 'xkeysib-TEST-BREVO-KEY');
+    assert.equal(capturedHeaders.Authorization, undefined);
+    assert.equal(capturedBody.sender.email, 'verificado@ejemplo.com');
+    assert.deepEqual(capturedBody.to, [{ email: 'destinatario@ejemplo.com' }]);
+    assert.match(capturedBody.textContent, /restablecer\?token=/);
+  });
 });
 
 
